@@ -1,0 +1,521 @@
+---
+title: 'Frontend Architecture'
+description: 'Next.js 15 frontend with App Router, real-time dashboard, and GitHub OAuth'
+icon: 'react'
+---
+
+## Frontend Overview
+
+Dependify's frontend is built with **Next.js 15**, leveraging the latest React 19 features and the App Router for optimal performance and developer experience.
+
+**Production URL**: https://dependify.vercel.app
+
+## Technology Stack
+
+### Core Framework
+
+```json package.json
+{
+  "name": "frontend",
+  "dependencies": {
+    "next": "15.1.6",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "^5"
+  }
+}
+```
+
+**Reference**: `frontend/package.json:27-29`
+
+### Key Dependencies
+
+<Tabs>
+  <Tab title="UI & Styling">
+    ```json
+    {
+      "tailwindcss": "^3.4.1",
+      "framer-motion": "^12.4.1",
+      "@radix-ui/react-scroll-area": "^1.2.3",
+      "@radix-ui/react-slot": "^1.1.2",
+      "lucide-react": "^0.475.0",
+      "@tabler/icons-react": "^3.30.0"
+    }
+    ```
+    
+    - **Tailwind CSS**: Utility-first styling
+    - **Framer Motion**: Smooth animations
+    - **Radix UI**: Accessible component primitives
+    - **Lucide/Tabler**: Icon libraries
+  </Tab>
+  
+  <Tab title="Real-time & Data">
+    ```json
+    {
+      "@supabase/supabase-js": "^2.48.1",
+      "socket.io-client": "^4.8.1"
+    }
+    ```
+    
+    - **Supabase**: Real-time database subscriptions
+    - **Socket.io**: WebSocket communication
+  </Tab>
+  
+  <Tab title="UI Components">
+    ```json
+    {
+      "rsuite": "^5.77.1",
+      "react-syntax-highlighter": "^15.6.1",
+      "class-variance-authority": "^0.7.1",
+      "clsx": "^2.1.1"
+    }
+    ```
+    
+    - **RSuite**: Component library for animations
+    - **Syntax Highlighter**: Code display
+    - **CVA**: Variant-based component styling
+  </Tab>
+</Tabs>
+
+**Reference**: `frontend/package.json:12-37`
+
+## Project Structure
+
+```
+frontend/src/
+├── app/
+│   ├── page.tsx                    # Main dashboard (authenticated)
+│   ├── login/
+│   │   └── page.tsx               # GitHub OAuth login
+│   ├── auth/
+│   │   └── callback/
+│   │       └── page.tsx           # OAuth callback handler
+│   ├── layout.tsx                 # Root layout
+│   └── globals.css                # Global styles
+├── components/
+│   ├── MainDash.tsx               # Main dashboard component
+│   ├── RepositoryPage.tsx         # Repository detail view
+│   ├── LiveCodeCard.tsx           # Real-time code updates
+│   ├── MultiFileCodeCard.tsx      # Multi-file diff view
+│   ├── GradientCanvas.tsx         # Background animation
+│   └── FeaturesShowcase.tsx       # Landing page features
+└── models/
+    └── Repository.ts              # TypeScript types
+```
+
+## App Router Implementation
+
+### Root Page: Dashboard
+
+The main dashboard is a client component that handles authentication and displays repositories:
+
+```typescript app/page.tsx
+"use client";
+
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import MainDash from "@/components/MainDash";
+
+export default function Home() {
+  const router = useRouter();
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  
+  // Check authentication on mount
+  useEffect(() => {
+    const authToken = localStorage.getItem("auth_token");
+    const loginTimestamp = localStorage.getItem("login_timestamp");
+    
+    if (!authToken) {
+      router.push("/login");
+      return;
+    }
+    
+    // Check 7-day session expiration
+    const SESSION_DURATION = 7 * 24 * 60 * 60 * 1000;
+    if (loginTimestamp) {
+      const timeElapsed = Date.now() - parseInt(loginTimestamp);
+      
+      if (timeElapsed > SESSION_DURATION) {
+        localStorage.removeItem("auth_token");
+        localStorage.removeItem("user");
+        localStorage.removeItem("login_timestamp");
+        router.push("/login");
+        return;
+      }
+    }
+    
+    setIsAuthenticated(true);
+  }, [router]);
+  
+  // ... rest of component
+}
+```
+
+**Reference**: `frontend/src/app/page.tsx:22-59`
+
+<Info>
+  **Session Management**: The frontend implements a 7-day session with timestamp validation stored in localStorage. This matches the backend JWT expiration policy.
+</Info>
+
+### Authentication Flow
+
+<Steps>
+  <Step title="User Clicks 'Login with GitHub'">
+    Redirects to GitHub OAuth authorization URL with client ID
+  </Step>
+  
+  <Step title="GitHub OAuth Callback">
+    GitHub redirects to `/auth/callback?code=...`
+  </Step>
+  
+  <Step title="Exchange Code for Token">
+    Frontend sends code to backend `/auth/github` endpoint
+    
+    ```typescript
+    const response = await fetch(`${API_URL}/auth/github`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code })
+    });
+    
+    const { access_token, user } = await response.json();
+    ```
+  </Step>
+  
+  <Step title="Store Token & User Data">
+    ```typescript
+    localStorage.setItem('auth_token', access_token);
+    localStorage.setItem('user', JSON.stringify(user));
+    localStorage.setItem('login_timestamp', Date.now().toString());
+    ```
+  </Step>
+  
+  <Step title="Redirect to Dashboard">
+    User is now authenticated and can access protected routes
+  </Step>
+</Steps>
+
+## Real-time Dashboard Implementation
+
+### Supabase Real-time Integration
+
+The dashboard subscribes to Supabase real-time updates for live progress tracking:
+
+```typescript components/LiveCodeCard.tsx
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+// Subscribe to real-time updates
+const subscription = supabase
+  .channel('repo-updates')
+  .on(
+    'postgres_changes',
+    {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'repo-updates'
+    },
+    (payload) => {
+      console.log('New update:', payload.new);
+      setStatus(payload.new.status);
+      setMessage(payload.new.message);
+      setCode(payload.new.code);
+    }
+  )
+  .subscribe();
+
+// Cleanup on unmount
+return () => {
+  subscription.unsubscribe();
+};
+```
+
+**Reference**: `frontend/package.json:17` (Supabase dependency)
+
+### Status Updates
+
+The backend sends status updates via Supabase:
+
+```python backend/checker.py:108-125
+data = {
+    "status": "READING",
+    "message": f"📖 Reading {filename}",
+    "code": chat_completion.code_content
+}
+supabase_client.table("repo-updates").insert(data).execute()
+```
+
+```python backend/modal_write.py:145-161
+data = {
+    "status": "WRITING",
+    "message": f"✍️ Updating {filename}",
+    "code": job_report.refactored_code
+}
+supabase_client.table("repo-updates").insert(data).execute()
+```
+
+### UI States
+
+<Tabs>
+  <Tab title="Loading">
+    ```tsx
+    {loading && (
+      <div className="flex items-center justify-center">
+        <div className="w-16 h-16 border-4 border-green-500 
+                        border-t-transparent rounded-full animate-spin" />
+      </div>
+    )}
+    ```
+  </Tab>
+  
+  <Tab title="Processing">
+    ```tsx
+    {status === 'READING' && (
+      <div className="animate-pulse">
+        <span className="text-green-400">📖 Reading {filename}</span>
+      </div>
+    )}
+    {status === 'WRITING' && (
+      <div className="animate-pulse">
+        <span className="text-blue-400">✍️ Updating {filename}</span>
+      </div>
+    )}
+    ```
+  </Tab>
+  
+  <Tab title="Complete">
+    ```tsx
+    {status === 'COMPLETE' && (
+      <div className="text-green-500">
+        ✅ Pull request created successfully!
+        <a href={prUrl} target="_blank">
+          View PR on GitHub
+        </a>
+      </div>
+    )}
+    ```
+  </Tab>
+</Tabs>
+
+## Component Architecture
+
+### MainDash Component
+
+The main dashboard component manages repository list and processing:
+
+```typescript components/MainDash.tsx
+interface MainDashProps {
+  sidebarOpen: boolean;
+  repositories: Repository[];
+  tasks: Task[];
+}
+
+export default function MainDash({
+  sidebarOpen,
+  repositories,
+  tasks
+}: MainDashProps) {
+  const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  
+  const handleProcessRepo = async (repoUrl: string) => {
+    setIsProcessing(true);
+    
+    try {
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${API_URL}/update`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          repository: repoUrl,
+          repository_owner: owner,
+          repository_name: name
+        })
+      });
+      
+      const result = await response.json();
+      // Handle result...
+    } catch (error) {
+      console.error('Processing failed:', error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+  
+  // ... render UI
+}
+```
+
+**Reference**: `frontend/src/components/MainDash.tsx`
+
+### GradientCanvas Component
+
+Custom canvas animation for background:
+
+```typescript components/GradientCanvas.tsx
+import { useEffect, useRef } from 'react';
+
+interface GradientCanvasProps {
+  gradientColor1: string;
+  gradientColor2: string;
+  gradientColor3: string;
+}
+
+export default function GradientCanvas({
+  gradientColor1,
+  gradientColor2,
+  gradientColor3
+}: GradientCanvasProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  
+  useEffect(() => {
+    // Animated gradient using Canvas API
+    // Creates organic, flowing background effect
+  }, [gradientColor1, gradientColor2, gradientColor3]);
+  
+  return (
+    <canvas
+      ref={canvasRef}
+      className="fixed inset-0 z-0"
+      style={{ filter: 'blur(100px)' }}
+    />
+  );
+}
+```
+
+**Reference**: `frontend/src/components/GradientCanvas.tsx`
+
+## Styling & Theming
+
+### Tailwind Configuration
+
+Custom theme with green accent colors:
+
+```javascript tailwind.config.js
+module.exports = {
+  content: ['./src/**/*.{js,ts,jsx,tsx,mdx}'],
+  theme: {
+    extend: {
+      colors: {
+        'forest-green': {
+          50: '#f0fdf4',
+          500: '#22c55e',
+          900: '#14532d'
+        }
+      },
+      animation: {
+        'spin': 'spin 1s linear infinite',
+        'pulse': 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+      }
+    }
+  },
+  plugins: [require('tailwindcss-animate')]
+}
+```
+
+### Framer Motion Animations
+
+Smooth transitions between pages:
+
+```typescript
+import { motion } from 'framer-motion';
+
+<motion.div
+  initial={{ opacity: 0, y: 20 }}
+  animate={{ opacity: 1, y: 0 }}
+  exit={{ opacity: 0, y: -20 }}
+  transition={{ duration: 0.3 }}
+>
+  {/* Content */}
+</motion.div>
+```
+
+**Reference**: `frontend/package.json:24` (framer-motion)
+
+## Environment Variables
+
+Required environment variables for frontend:
+
+```bash .env.local
+NEXT_PUBLIC_GITHUB_CLIENT_ID=your_github_oauth_client_id
+NEXT_PUBLIC_API_URL=https://your-backend.onrender.com
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+```
+
+<Warning>
+  Only use `NEXT_PUBLIC_` prefix for variables that need to be exposed to the browser. Never expose secret keys!
+</Warning>
+
+## Build & Deployment
+
+### Development
+
+```bash
+pnpm install
+pnpm dev
+```
+
+Runs on http://localhost:3000 with Turbopack for fast refresh.
+
+**Reference**: `frontend/package.json:6`
+
+### Production Build
+
+```bash
+pnpm build
+pnpm start
+```
+
+Creates optimized production build with static generation and code splitting.
+
+**Reference**: `frontend/package.json:7-8`
+
+### Vercel Deployment
+
+```bash
+pnpm deploy
+```
+
+Deploys to Vercel with automatic edge optimization.
+
+**Reference**: `frontend/package.json:10`
+
+<Info>
+  Vercel automatically detects Next.js and configures optimal build settings. No additional configuration needed.
+</Info>
+
+## Performance Optimizations
+
+<CardGroup cols={2}>
+  <Card title="Server Components" icon="server">
+    Default to Server Components for reduced JavaScript bundle size
+  </Card>
+  <Card title="Code Splitting" icon="scissors">
+    Automatic route-based code splitting with Next.js App Router
+  </Card>
+  <Card title="Image Optimization" icon="image">
+    Next.js Image component with automatic WebP conversion
+  </Card>
+  <Card title="Edge Runtime" icon="globe">
+    Deploy to Vercel Edge Network for sub-100ms response times
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Backend Architecture" icon="server" href="/architecture/backend">
+    Learn about FastAPI and Modal integration
+  </Card>
+  <Card title="AI Processing" icon="brain" href="/architecture/ai-processing">
+    Understand Groq AI and validation pipeline
+  </Card>
+</CardGroup>

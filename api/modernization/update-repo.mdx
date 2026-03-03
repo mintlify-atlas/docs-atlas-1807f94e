@@ -1,0 +1,299 @@
+---
+title: 'Update Repository'
+api: 'POST /update'
+description: 'Modernize code and create pull request'
+---
+
+## Overview
+
+This is the core endpoint of Dependify. It analyzes a GitHub repository, refactors outdated code using AI, and automatically creates a pull request with the modernized changes.
+
+## Workflow
+
+1. **Analysis**: Scans repository files for outdated syntax and patterns
+2. **Refactoring**: Uses LLM to modernize code with AI-powered suggestions
+3. **Validation**: Validates refactored code for syntax and quality
+4. **Git Operations**: Creates a branch, commits changes, and pushes to GitHub
+5. **Pull Request**: Creates a PR with detailed changelog and quality metrics
+
+## Authentication
+
+<Info>
+  Authentication is **optional** for public repositories but **required** for private repositories.
+</Info>
+
+```
+Authorization: Bearer <access_token>
+```
+
+## Rate Limiting
+
+<Warning>
+  This endpoint is rate-limited to **100 requests per hour** per IP address (configurable via environment).
+</Warning>
+
+## Request Body
+
+<ParamField body="repository" type="string" required>
+  Full GitHub repository URL (e.g., `https://github.com/owner/repo`)
+  
+  Must be a valid GitHub URL starting with `https://github.com/` or `git@github.com:`
+</ParamField>
+
+<ParamField body="repository_owner" type="string" required>
+  GitHub username or organization that owns the repository
+</ParamField>
+
+<ParamField body="repository_name" type="string" required>
+  Repository name (without owner)
+</ParamField>
+
+## Response
+
+<ResponseField name="status" type="string">
+  Operation status: `"success"` or `"error"`
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable status message
+</ResponseField>
+
+<ResponseField name="repository" type="string">
+  Repository URL that was processed
+</ResponseField>
+
+<ResponseField name="files_analyzed" type="integer">
+  Total number of files analyzed for outdated patterns
+</ResponseField>
+
+<ResponseField name="files_updated" type="integer">
+  Number of files successfully updated
+</ResponseField>
+
+<ResponseField name="branch" type="string">
+  Name of the created branch containing the changes
+</ResponseField>
+
+<ResponseField name="pull_request_url" type="string">
+  URL to the created GitHub pull request
+</ResponseField>
+
+<ResponseField name="is_own_repo" type="boolean">
+  Whether the authenticated user owns the repository (if true, no fork was created)
+</ResponseField>
+
+<ResponseField name="quality_metrics" type="object">
+  Quality and validation metrics for the refactored code
+  
+  <Expandable title="quality_metrics properties">
+    <ResponseField name="average_confidence_score" type="number">
+      Average AI confidence score (0-100) across all refactored files
+    </ResponseField>
+    
+    <ResponseField name="all_files_validated" type="boolean">
+      Whether all files passed syntax validation
+    </ResponseField>
+    
+    <ResponseField name="high_confidence_files" type="integer">
+      Number of files with confidence score >= 80
+    </ResponseField>
+    
+    <ResponseField name="validation_results" type="array">
+      Sample validation results (first 10 files)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="output" type="array">
+  Sample of refactored files (first 5 files for preview)
+  
+  <Expandable title="output item properties">
+    <ResponseField name="path" type="string">
+      File path
+    </ResponseField>
+    
+    <ResponseField name="new_content" type="string">
+      Refactored code content
+    </ResponseField>
+    
+    <ResponseField name="comments" type="string">
+      AI-generated explanation of changes
+    </ResponseField>
+    
+    <ResponseField name="confidence_score" type="number">
+      AI confidence score (0-100)
+    </ResponseField>
+    
+    <ResponseField name="validation" type="object">
+      Syntax validation results
+    </ResponseField>
+    
+    <ResponseField name="changelog" type="object">
+      Lines added/removed and key changes
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="fork_info" type="object">
+  Fork information (only present if repository was forked)
+  
+  <Expandable title="fork_info properties">
+    <ResponseField name="message" type="string">
+      Information about the fork creation
+    </ResponseField>
+    
+    <ResponseField name="fork_owner" type="string">
+      Username of the fork owner
+    </ResponseField>
+    
+    <ResponseField name="fork_name" type="string">
+      Name of the forked repository
+    </ResponseField>
+    
+    <ResponseField name="can_delete" type="boolean">
+      Whether the fork can be safely deleted
+    </ResponseField>
+    
+    <ResponseField name="delete_note" type="string">
+      Instructions for deleting the fork
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -X POST https://api.dependify.dev/update \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -d '{
+    "repository": "https://github.com/octocat/Hello-World",
+    "repository_owner": "octocat",
+    "repository_name": "Hello-World"
+  }'
+```
+
+## Example Response
+
+```json
+{
+  "status": "success",
+  "message": "Repository updated and pull request created successfully",
+  "repository": "https://github.com/octocat/Hello-World",
+  "files_analyzed": 15,
+  "files_updated": 8,
+  "branch": "dependify/modernize-2026-03-03-142536",
+  "pull_request_url": "https://github.com/octocat/Hello-World/pull/123",
+  "is_own_repo": false,
+  "quality_metrics": {
+    "average_confidence_score": 87.3,
+    "all_files_validated": true,
+    "high_confidence_files": 7,
+    "validation_results": [
+      {
+        "file": "src/utils/helpers.js",
+        "is_valid": true,
+        "confidence": 92
+      }
+    ]
+  },
+  "output": [
+    {
+      "path": "/staging/src/utils/helpers.js",
+      "new_content": "const formatDate = (date) => {...}",
+      "comments": "Modernized to ES6 arrow functions and const/let",
+      "confidence_score": 92,
+      "validation": {
+        "is_valid": true,
+        "language": "javascript"
+      },
+      "changelog": {
+        "lines_added": 12,
+        "lines_removed": 15,
+        "key_changes": ["Converted var to const/let", "Updated to arrow functions"]
+      }
+    }
+  ],
+  "fork_info": {
+    "message": "A temporary staging fork was created to propose these changes",
+    "fork_owner": "your-username",
+    "fork_name": "Hello-World",
+    "can_delete": true,
+    "delete_note": "You can safely delete this fork after the PR is merged or closed"
+  }
+}
+```
+
+## Error Responses
+
+<Expandable title="400 Bad Request - Invalid Repository URL">
+  ```json
+  {
+    "detail": [
+      {
+        "loc": ["body", "repository"],
+        "msg": "Repository must be a valid GitHub URL",
+        "type": "value_error"
+      }
+    ]
+  }
+  ```
+</Expandable>
+
+<Expandable title="400 Bad Request - No Files Updated">
+  ```json
+  {
+    "detail": "No valid refactored files generated. Please check repository content."
+  }
+  ```
+</Expandable>
+
+<Expandable title="429 Too Many Requests">
+  ```json
+  {
+    "detail": "Rate limit exceeded: 100 per 1 hour"
+  }
+  ```
+</Expandable>
+
+<Expandable title="500 Internal Server Error - Analysis Failed">
+  ```json
+  {
+    "detail": "Failed to analyze repository: Connection timeout"
+  }
+  ```
+</Expandable>
+
+<Expandable title="500 Internal Server Error - Git Operation Failed">
+  ```json
+  {
+    "detail": "Git operation failed: Permission denied"
+  }
+  ```
+</Expandable>
+
+## Success Without Changes
+
+If no outdated files are found, the endpoint returns a success response without creating a pull request:
+
+```json
+{
+  "status": "success",
+  "message": "No outdated files found in repository",
+  "repository": "https://github.com/octocat/Hello-World",
+  "files_analyzed": 0,
+  "files_updated": 0
+}
+```
+
+## Processing Time
+
+<Info>
+  This endpoint performs complex operations and may take several minutes to complete:
+  
+  - Small repos (< 10 files): 30-60 seconds
+  - Medium repos (10-50 files): 2-5 minutes  
+  - Large repos (> 50 files): 5-15 minutes
+  
+  Consider using the WebSocket endpoint (`/ws`) for real-time progress updates.
+</Info>

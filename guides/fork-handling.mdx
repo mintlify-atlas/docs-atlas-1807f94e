@@ -1,0 +1,486 @@
+---
+title: 'Fork Handling'
+description: 'How Dependify automatically manages forks for external repositories'
+icon: 'code-fork'
+---
+
+## Overview
+
+Dependify uses a **"temporary staging fork"** approach when working with repositories you don't own. This guide explains the fork lifecycle, automatic detection logic, and cleanup process.
+
+<Note>
+  Forks are **only created for external repositories**. If you own the repository, Dependify creates a branch directly in your repo—no fork needed.
+</Note>
+
+## The Temporary Staging Fork Concept
+
+### What is a Temporary Staging Fork?
+
+A temporary staging fork is:
+
+- A **short-lived fork** created solely to propose changes via pull request
+- **Not intended for long-term use** or independent development
+- **Safe to delete** after the PR is merged or closed
+- Automatically created by Dependify when modernizing external repositories
+
+<Tip>
+  Think of it like a staging area in Git—temporary storage for changes before they're committed to the main repository.
+</Tip>
+
+### Why Forks Are Necessary
+
+GitHub's permission model requires forks for contributing to external repositories:
+
+```
+Scenario: You want to modernize microsoft/magma
+
+Without Fork:
+❌ Cannot push branches to microsoft/magma (no write access)
+❌ Cannot create PR from non-existent branch
+
+With Fork:
+✅ Create your-username/magma fork
+✅ Push changes to your fork
+✅ Create PR from your-username/magma to microsoft/magma
+```
+
+## Automatic Fork Detection Logic
+
+### Step-by-Step Detection Process
+
+Dependify follows this logic when you submit a repository:
+
+```python
+# From git_driver.py:11-86
+
+def create_fork(repo_owner, repo_name):
+    # Step 1: Get authenticated user's username
+    user_response = requests.get("https://api.github.com/user")
+    username = user_response.json()["login"]
+    
+    # Step 2: Check if user owns the repository
+    if username.lower() == repo_owner.lower():
+        print(f"User owns the repository - no fork needed")
+        return repo_data  # is_own_repo = True
+    
+    # Step 3: Check if fork already exists
+    fork_check_url = f"https://api.github.com/repos/{username}/{repo_name}"
+    fork_response = requests.get(fork_check_url)
+    
+    if fork_response.status_code == 200:
+        fork_data = fork_response.json()
+        if fork_data.get("fork"):
+            print(f"Fork already exists: {fork_data['clone_url']}")
+            return fork_data  # Use existing fork
+    
+    # Step 4: Create new fork
+    url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/forks"
+    response = requests.post(url)
+    
+    if response.status_code == 202:
+        print("New fork created successfully")
+        return response.json()
+```
+
+<AccordionGroup>
+  <Accordion title="Detection Step 1: Identify User">
+    Dependify queries GitHub's API to get your authenticated username.
+    
+    ```bash
+    GET https://api.github.com/user
+    # Returns: { "login": "your-username", ... }
+    ```
+  </Accordion>
+
+  <Accordion title="Detection Step 2: Check Ownership">
+    Compares your username with the repository owner (case-insensitive).
+    
+    ```python
+    if username.lower() == repo_owner.lower():
+        # You own it → No fork needed
+        return original_repo_data
+    ```
+  </Accordion>
+
+  <Accordion title="Detection Step 3: Check Existing Fork">
+    Looks for an existing fork under your account.
+    
+    ```bash
+    GET https://api.github.com/repos/your-username/repo-name
+    # If exists and is a fork → Reuse it
+    ```
+  </Accordion>
+
+  <Accordion title="Detection Step 4: Create New Fork">
+    If no fork exists, creates a new one.
+    
+    ```bash
+    POST https://api.github.com/repos/original-owner/repo-name/forks
+    # Returns 202: Fork creation initiated
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## When Forks Are Created vs Direct PR
+
+### Decision Tree
+
+```
+Repository: github.com/owner/repo
+|
+├─ Do you own it? (your-username == owner)
+│  ├─ YES → Direct Branch + PR in your repo
+│  │        No fork created
+│  │        Branch: dependify-xxxxx
+│  │        PR: owner/repo (dependify-xxxxx → main)
+│  │
+│  └─ NO → Fork Required
+│     |
+│     ├─ Fork exists? (your-username/repo)
+│     │  ├─ YES → Use existing fork
+│     │  │        Clone: your-username/repo
+│     │  │        Push changes to your fork
+│     │  │        PR: owner/repo (your-username:dependify-xxxxx → main)
+│     │  │
+│     │  └─ NO → Create new fork
+│     │           Fork: your-username/repo
+│     │           Clone: your-username/repo
+│     │           Push changes to your fork
+│     │           PR: owner/repo (your-username:dependify-xxxxx → main)
+```
+
+### Comparison Table
+
+| Scenario | Fork Created? | Branch Location | PR Format |
+|----------|---------------|-----------------|------------|
+| **Your own repo** | ❌ No | `your-username/repo:dependify-xxx` | `repo (branch → main)` |
+| **External repo (no fork)** | ✅ Yes | `your-username/repo:dependify-xxx` | `original-repo (fork:branch → main)` |
+| **External repo (fork exists)** | ♻️ Reused | `your-username/repo:dependify-xxx` | `original-repo (fork:branch → main)` |
+
+## Fork Lifecycle
+
+### 1. Fork Creation
+
+<AccordionGroup>
+  <Accordion title="Automatic Process">
+    ```bash
+    # Dependify executes:
+    POST /repos/original-owner/repo-name/forks
+    
+    # GitHub responds:
+    HTTP 202 Accepted
+    {
+      "name": "repo-name",
+      "owner": { "login": "your-username" },
+      "fork": true,
+      "parent": {
+        "full_name": "original-owner/repo-name"
+      }
+    }
+    ```
+    
+    Your fork appears at: `github.com/your-username/repo-name`
+  </Accordion>
+
+  <Accordion title="What Gets Forked">
+    - ✅ All branches (including default branch)
+    - ✅ Commit history
+    - ✅ Tags and releases
+    - ❌ Issues (not copied)
+    - ❌ Pull requests (not copied)
+    - ❌ Actions workflows (disabled by default)
+  </Accordion>
+</AccordionGroup>
+
+### 2. Fork Usage
+
+```python
+# From git_driver.py:344-386
+
+# Clone the fork with authentication
+authenticated_url = fork_url.replace(
+    "https://github.com/",
+    f"https://{Config.GITHUB_TOKEN}@github.com/"
+)
+
+repo = Repo.clone_from(authenticated_url, staging_dir)
+
+# Create and checkout new branch
+new_branch_name = f"dependify-{uuid.uuid4().hex[:8]}"
+new_branch = repo.create_head(new_branch_name)
+new_branch.checkout()
+
+# Make changes, commit, and push
+repo.index.add(files_to_stage)
+repo.index.commit("🤖 Automated code modernization by Dependify")
+origin.push(new_branch)
+```
+
+<Note>
+  Dependify clones your fork (not the original repo) to ensure changes can be pushed without permission errors.
+</Note>
+
+### 3. Pull Request Creation
+
+PR is created **from your fork to the original repository**:
+
+```python
+# From git_driver.py:262-269
+
+if is_own_repo:
+    head = new_branch_name  # Just "dependify-xxxxx"
+else:
+    head = f"{head_owner}:{new_branch_name}"  # "your-username:dependify-xxxxx"
+
+data = {
+    "title": "🤖 Automated code modernization by Dependify",
+    "head": head,
+    "base": base_branch,  # Usually "main"
+    "body": pr_body
+}
+```
+
+**Result:** PR appears in the original repository, sourced from your fork.
+
+### 4. Fork Cleanup (Optional)
+
+After the PR is merged or closed, you can delete the fork:
+
+```python
+# From git_driver.py:305-340
+
+def delete_fork(repo_owner, repo_name):
+    """
+    Delete a forked repository (OPTIONAL - for cleanup after PR is merged).
+    
+    Users can also manually delete forks from GitHub UI.
+    """
+    url = f"https://api.github.com/repos/{repo_owner}/{repo_name}"
+    response = requests.delete(url, headers=headers)
+    
+    if response.status_code == 204:
+        print(f"✅ Fork deleted: {repo_owner}/{repo_name}")
+        return True
+```
+
+<Warning>
+  Fork deletion is **permanent and irreversible**. Only delete forks after the PR is merged or closed, and you're certain you don't need the fork anymore.
+</Warning>
+
+## Fork Cleanup After PR is Merged
+
+### Manual Cleanup (Recommended)
+
+You can manually delete forks through GitHub's web interface:
+
+1. Navigate to your fork: `github.com/your-username/repo-name`
+2. Click **Settings** (repository settings)
+3. Scroll to **Danger Zone**
+4. Click **Delete this repository**
+5. Confirm deletion by typing the repository name
+
+<Tip>
+  Manual deletion gives you control and ensures you don't accidentally delete a fork you still need.
+</Tip>
+
+### When to Delete Your Fork
+
+<AccordionGroup>
+  <Accordion title="Safe to Delete">
+    ✅ **PR has been merged** into the original repository  
+    ✅ **PR has been closed** (rejected or abandoned)  
+    ✅ **You don't plan to contribute again** soon  
+    ✅ **All your changes are in the original repo**
+  </Accordion>
+
+  <Accordion title="Keep Your Fork If">
+    ⚠️ **PR is still open** and under review  
+    ⚠️ **You plan to make more contributions** to the same project  
+    ⚠️ **You want to maintain your own version** of the project  
+    ⚠️ **Fork has additional branches** you're working on
+  </Accordion>
+</AccordionGroup>
+
+### Automated Cleanup (Future Feature)
+
+<Note>
+  Automated fork cleanup is on the roadmap for future versions of Dependify. Currently, you need to manually delete forks through GitHub.
+</Note>
+
+## Understanding PR Descriptions for Forked Repos
+
+When Dependify creates a PR from a fork, the description includes fork-specific information:
+
+```markdown
+## Automated Code Modernization
+
+This pull request was automatically generated by Dependify...
+
+### About This PR
+- This PR was created from a **temporary staging fork** (`your-username/repo-name`)
+- The fork was created solely to propose these changes
+- You can safely delete the fork after reviewing/merging this PR
+- All changes are transparent and can be reviewed in the "Files changed" tab
+
+### Branch
+`dependify-a3f2d8c1` (from fork: `your-username/repo-name`)
+
+---
+Generated with ❤️ by Dependify 2.0
+
+*Note: This is an automated tool for code modernization. The temporary fork
+used to create this PR can be deleted after the PR is merged or closed.*
+```
+
+<Tip>
+  The PR description explicitly mentions the temporary fork to help repository maintainers understand where the changes came from.
+</Tip>
+
+## Common Fork Scenarios
+
+### Scenario 1: First-Time Contribution
+
+```
+Input: https://github.com/facebook/react
+
+1. ✅ Dependify detects you don't own facebook/react
+2. ✅ No fork exists → Creates your-username/react
+3. ✅ Clones your fork
+4. ✅ Creates branch: dependify-x8a4b7f2
+5. ✅ Pushes changes to your fork
+6. ✅ Opens PR: facebook/react ← your-username:dependify-x8a4b7f2
+
+Result: PR submitted! Fork created at github.com/your-username/react
+```
+
+### Scenario 2: Fork Already Exists
+
+```
+Input: https://github.com/facebook/react
+(You previously forked this repository)
+
+1. ✅ Dependify detects you don't own facebook/react
+2. ✅ Fork exists → Reuses your-username/react
+3. ✅ Clones your existing fork
+4. ✅ Creates branch: dependify-c2d9e6f1
+5. ✅ Pushes changes to your fork
+6. ✅ Opens PR: facebook/react ← your-username:dependify-c2d9e6f1
+
+Result: PR submitted using existing fork!
+```
+
+### Scenario 3: Multiple PRs from Same Fork
+
+```
+First Run:
+- Creates fork: your-username/repo
+- Branch: dependify-aaa111
+- PR #1: Modernizes JavaScript files
+
+Second Run (same repo):
+- Reuses fork: your-username/repo
+- Branch: dependify-bbb222
+- PR #2: Modernizes TypeScript files
+
+Both PRs coexist from the same fork!
+```
+
+<Note>
+  You can have **multiple open PRs** from the same fork by using different branch names. Each `dependify-xxxxx` branch is unique.
+</Note>
+
+## Troubleshooting Fork Issues
+
+### "Failed to create fork: 403 Forbidden"
+
+<AccordionGroup>
+  <Accordion title="Cause">
+    Repository is private and you don't have access.
+  </Accordion>
+  
+  <Accordion title="Solution">
+    - Ask the repository owner to add you as a collaborator
+    - Ensure you have read access to the repository
+    - For private repos, you need explicit permission
+  </Accordion>
+</AccordionGroup>
+
+### "Fork already exists (200 response)"
+
+<AccordionGroup>
+  <Accordion title="Cause">
+    You've previously forked this repository.
+  </Accordion>
+  
+  <Accordion title="Solution">
+    - This is **not an error**—Dependify will use your existing fork
+    - If your fork is outdated, consider syncing it with the original repo first
+    - Alternatively, delete your fork and let Dependify create a fresh one
+  </Accordion>
+</AccordionGroup>
+
+### "Error pushing to remote"
+
+<AccordionGroup>
+  <Accordion title="Cause">
+    Authentication failed or fork permissions issue.
+  </Accordion>
+  
+  <Accordion title="Solution">
+    - Verify your GitHub token has the `repo` scope
+    - Check that your fork isn't archived or read-only
+    - Ensure you have push access to your own fork
+  </Accordion>
+</AccordionGroup>
+
+### "PR creation failed: Validation Failed"
+
+<AccordionGroup>
+  <Accordion title="Cause">
+    Branch name collision or PR already exists for this branch.
+  </Accordion>
+  
+  <Accordion title="Solution">
+    - Check if a PR already exists for the same branch
+    - Close or merge existing PRs before creating new ones
+    - Delete the branch in your fork and retry
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices for Fork Management
+
+<AccordionGroup>
+  <Accordion title="Keep Forks Organized">
+    - Delete forks after PRs are merged
+    - Use descriptive branch names for your own changes
+    - Don't mix Dependify branches with your manual work
+  </Accordion>
+
+  <Accordion title="Sync Forks Regularly">
+    If you plan to contribute multiple times:
+    ```bash
+    # Sync your fork with the original repo
+    git remote add upstream https://github.com/original-owner/repo.git
+    git fetch upstream
+    git merge upstream/main
+    git push origin main
+    ```
+  </Accordion>
+
+  <Accordion title="Clean Up Old Branches">
+    Periodically review and delete old Dependify branches:
+    ```bash
+    # List all dependify branches
+    git branch -r | grep dependify
+    
+    # Delete old branches
+    git push origin --delete dependify-old-branch
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Related Documentation
+
+- [Repository Workflows](/guides/repository-workflows) - Understanding owned vs external repos
+- [Understanding Changelogs](/guides/understanding-changelogs) - Reading AI-generated PR descriptions
+- [Best Practices](/guides/best-practices) - Tips for effective modernization

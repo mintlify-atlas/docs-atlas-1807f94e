@@ -1,0 +1,315 @@
+---
+title: 'Authentication'
+description: 'Understanding GitHub OAuth flow, permissions, and session management'
+icon: 'key'
+---
+
+## Overview
+
+Dependify uses **GitHub OAuth 2.0** to authenticate users and access repositories. This ensures secure, token-based authentication without requiring your GitHub password.
+
+## Authentication Flow
+
+<Steps>
+  <Step title="User Initiates OAuth">
+    When you click "Continue with GitHub" on [dependify.vercel.app](https://dependify.vercel.app), you're redirected to GitHub's authorization page.
+
+    **Redirect URL:**
+    ```
+    https://github.com/login/oauth/authorize?client_id=YOUR_CLIENT_ID
+    ```
+  </Step>
+
+  <Step title="GitHub Authorization">
+    On GitHub's page, you'll see:
+    - The Dependify application name
+    - Requested permissions (repository access)
+    - Option to authorize or cancel
+
+    Click **"Authorize"** to proceed.
+  </Step>
+
+  <Step title="OAuth Code Exchange">
+    After authorization, GitHub redirects back to Dependify with a temporary authorization code:
+
+    ```
+    https://dependify.vercel.app/callback?code=TEMPORARY_CODE
+    ```
+
+    Dependify's backend exchanges this code for an **access token** by calling:
+
+    ```python
+    POST https://github.com/login/oauth/access_token
+    ```
+
+    <Info>
+      This happens automatically in the background. You don't need to do anything.
+    </Info>
+  </Step>
+
+  <Step title="JWT Token Creation">
+    Once Dependify receives your GitHub access token, it creates a **JWT (JSON Web Token)** for API authentication:
+
+    ```python
+    # From auth.py:24-48
+    access_token = AuthService.create_access_token(
+        data={
+            "user_id": user_data["id"],
+            "username": user_data["login"],
+            "github_token": github_data["github_token"]
+        }
+    )
+    ```
+
+    **Token Contents:**
+    - Your GitHub user ID
+    - Your GitHub username
+    - GitHub access token (for API calls)
+    - Expiration timestamp (24 hours from creation)
+  </Step>
+
+  <Step title="Authenticated Session">
+    The JWT is stored in your browser and included in all API requests:
+
+    ```http
+    Authorization: Bearer YOUR_JWT_TOKEN
+    ```
+
+    Your session remains active for **7 days** (server-side validation) with token refreshes every **24 hours**.
+  </Step>
+</Steps>
+
+## Required Permissions
+
+Dependify requests the following GitHub OAuth scopes:
+
+### `public_repo` (Implicit)
+Access to your public repositories:
+- Read repository contents
+- Create branches
+- Push commits
+- Create pull requests
+
+### `repo` (For Private Repositories)
+If you want to modernize private repositories, you'll need to grant full repository access:
+- All `public_repo` permissions
+- Access to private repositories
+- Fork creation
+
+<Warning>
+  Dependify only requests the minimum permissions needed. Your GitHub password is never stored or transmitted.
+</Warning>
+
+## What Dependify Does With Your Token
+
+Your GitHub access token is used exclusively for:
+
+1. **Reading repository files** - To analyze code for modernization
+2. **Creating forks** - For repositories you don't own
+3. **Creating branches** - To store modernized code
+4. **Pushing commits** - To submit changes
+5. **Creating pull requests** - To propose changes
+
+<Info>
+  **Security Note:** Tokens are encrypted in transit and at rest. They are never logged or shared with third parties.
+</Info>
+
+## Session Management
+
+### Token Expiration
+
+```python
+# From auth.py:15
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
+```
+
+Your JWT token expires after **24 hours**. After expiration:
+1. You'll be automatically redirected to re-authenticate
+2. Your GitHub OAuth token remains valid (doesn't require re-authorization)
+3. A new JWT is issued seamlessly
+
+### Session Duration
+
+Server-side sessions last **7 days** from your last activity. After 7 days of inactivity:
+- You'll need to click "Continue with GitHub" again
+- GitHub may or may not require re-authorization (depends on their cache)
+
+### Verification
+
+To check if you're authenticated, Dependify calls:
+
+```python
+# From server.py:135-138
+@app.get("/auth/me")
+async def get_current_user_info(current_user: Dict = Depends(get_current_user)):
+    return {"user": current_user}
+```
+
+**Test your authentication:**
+
+```bash
+curl -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  https://your-backend.onrender.com/auth/me
+```
+
+**Success Response:**
+```json
+{
+  "user": {
+    "user_id": 12345678,
+    "username": "your-github-username",
+    "github_token": "gho_..."
+  }
+}
+```
+
+**Error Response (Expired Token):**
+```json
+{
+  "detail": "Token has expired"
+}
+```
+
+## Token Verification
+
+Every API request goes through token verification:
+
+```python
+# From auth.py:50-70
+@staticmethod
+def verify_token(token: str) -> Dict:
+    try:
+        payload = jwt.decode(token, Config.API_SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token has expired")
+    except jwt.JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+```
+
+<Note>
+  Invalid or expired tokens automatically trigger re-authentication. You don't need to manually handle this.
+</Note>
+
+## Security Best Practices
+
+### For Users
+
+1. **Review Permissions** - Always check what permissions you're granting
+2. **Revoke Access** - You can revoke Dependify's access anytime from GitHub Settings > Applications
+3. **Use 2FA** - Enable two-factor authentication on your GitHub account
+
+### For Developers
+
+1. **Never Log Tokens** - GitHub tokens are sensitive credentials
+2. **Use Environment Variables** - Store OAuth secrets in `.env` files
+3. **Rotate Secrets** - Regularly rotate your `API_SECRET_KEY`
+
+<Warning>
+  If you suspect your token has been compromised:
+  1. Go to GitHub Settings > Applications > Authorized OAuth Apps
+  2. Find "Dependify" and click "Revoke"
+  3. Re-authenticate to get a new token
+</Warning>
+
+## Rate Limiting
+
+To prevent abuse, authentication endpoints are rate-limited:
+
+```python
+# From server.py:103
+@limiter.limit("10/minute")
+async def github_oauth(request: Request, oauth_request: GitHubOAuthRequest):
+```
+
+**Limits:**
+- **10 OAuth exchanges per minute** - Prevents brute-force attacks
+- **100 API requests per hour** - For repository modernization
+
+<Info>
+  If you hit rate limits, wait a few minutes and try again. Limits reset on a rolling window basis.
+</Info>
+
+## Troubleshooting
+
+### "Invalid token" Error
+
+**Cause:** Your JWT has expired or is malformed.
+
+**Solution:** Refresh the page and re-authenticate.
+
+### "GitHub OAuth error: bad_verification_code"
+
+**Cause:** The OAuth code expired (codes are single-use and expire after 10 minutes).
+
+**Solution:** Start the OAuth flow again from the beginning.
+
+### "Token has expired"
+
+**Cause:** Your JWT is older than 24 hours.
+
+**Solution:** Click "Continue with GitHub" to get a new token.
+
+### "Failed to access repository"
+
+**Cause:** Your GitHub token lacks necessary permissions.
+
+**Solution:** 
+1. Revoke Dependify's access on GitHub
+2. Re-authenticate and grant full `repo` scope
+3. Try again
+
+## Environment Variables
+
+If you're running Dependify locally or self-hosting, configure these variables:
+
+```bash
+# Backend .env
+GITHUB_CLIENT_ID=your_github_oauth_client_id
+GITHUB_CLIENT_SECRET=your_github_oauth_client_secret
+GITHUB_TOKEN=your_github_personal_access_token
+API_SECRET_KEY=your_random_secret_key_for_jwt
+```
+
+```bash
+# Frontend .env.local
+NEXT_PUBLIC_GITHUB_CLIENT_ID=your_github_oauth_client_id
+NEXT_PUBLIC_API_URL=https://your-backend.onrender.com
+```
+
+<Warning>
+  Keep these values secret! Never commit them to version control.
+</Warning>
+
+## API Integration
+
+To use Dependify's API programmatically:
+
+1. **Get your JWT token** from the browser's localStorage after authenticating
+2. **Include it in requests:**
+
+```bash
+curl -X POST https://your-backend.onrender.com/update \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repository": "https://github.com/owner/repo",
+    "repository_owner": "owner",
+    "repository_name": "repo"
+  }'
+```
+
+<Note>
+  See the [API Reference](/api/modernization/update-repo) for complete integration details.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="First Modernization" icon="wand-magic-sparkles" href="/getting-started/first-modernization">
+    Now that you're authenticated, modernize your first repository
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/auth/oauth">
+    Integrate authentication into your own applications
+  </Card>
+</CardGroup>

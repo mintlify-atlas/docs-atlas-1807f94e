@@ -1,0 +1,628 @@
+---
+title: 'AI Processing Pipeline'
+description: 'Groq AI inference, prompt engineering, validation, and error handling'
+icon: 'brain'
+---
+
+## AI Processing Overview
+
+Dependify uses **Groq AI** with Meta's Llama models for ultra-fast code analysis and refactoring. The pipeline includes validation, confidence scoring, and comprehensive changelog generation.
+
+## Groq AI Integration
+
+### Why Groq?
+
+<CardGroup cols={2}>
+  <Card title="Lightning Fast" icon="bolt">
+    Up to **750 tokens/second** on LPU architecture (15x faster than GPU)
+  </Card>
+  <Card title="Cost Effective" icon="dollar-sign">
+    Significantly cheaper than OpenAI while maintaining quality
+  </Card>
+  <Card title="High Availability" icon="check">
+    99.9% uptime with global infrastructure
+  </Card>
+  <Card title="Llama Models" icon="wand-magic-sparkles">
+    Access to latest open-source Llama 3.1 and 3.3 models
+  </Card>
+</CardGroup>
+
+### Model Selection
+
+Dependify uses two different models optimized for different tasks:
+
+<Tabs>
+  <Tab title="Analysis: llama-3.1-8b-instant">
+    **Used in**: `containers.py` (analysis container)
+    
+    ```python checker.py:97
+    chat_completion = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[...],
+        response_model=CodeChange,
+    )
+    ```
+    
+    **Characteristics**:
+    - **Speed**: ~5-10 files/second
+    - **Purpose**: Fast file scanning and filtering
+    - **Output**: List of files needing updates
+    - **Context**: 8K tokens
+    
+    **Why this model?**
+    - Blazing fast for large repository scanning
+    - Sufficient intelligence to detect outdated patterns
+    - Lower cost for high-volume scanning
+  </Tab>
+  
+  <Tab title="Refactoring: llama-3.3-70b-versatile">
+    **Used in**: `modal_write.py` (refactoring container)
+    
+    ```python modal_write.py:103
+    job_report = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[...],
+        response_model=JobReport,
+    )
+    ```
+    
+    **Characteristics**:
+    - **Speed**: ~2-3 files/second
+    - **Purpose**: High-quality code refactoring
+    - **Output**: Refactored code with explanations
+    - **Context**: 32K tokens
+    
+    **Why this model?**
+    - Superior code generation quality
+    - Better understanding of complex syntax
+    - More accurate explanations
+    - Handles larger files (up to 32K tokens)
+  </Tab>
+</Tabs>
+
+**Reference**: `backend/checker.py:97`, `backend/modal_write.py:103`
+
+## Prompt Engineering
+
+### Analysis Prompt (File Scanning)
+
+The analysis prompt identifies files with outdated syntax:
+
+```python checker.py:80-91
+user_prompt = (
+    "Analyze the following code and determine if the syntax is out of date. "
+    "If it is out of date, specify what changes need to be made in the following JSON format:\n\n"
+    "{\n"
+    '  "path": "relative/file/path",\n'
+    '  "code_content": "The entire content of the file, before any changes are made.",\n'
+    '  "reason": "A short explanation of why the code is out of date.",\n'
+    '  "add": "Whether the code should be updated and has changes."\n'
+    "}\n\n"
+    f"{file_content}"
+)
+```
+
+**System Prompt**:
+```python checker.py:99
+{
+    "role": "system",
+    "content": "You are a helpful assistant that analyzes code and returns 
+                a JSON object with the path, and raw code content. Your goal 
+                is to identify outdated syntax in code and keep track of it."
+}
+```
+
+**Reference**: `backend/checker.py:80-100`
+
+<Info>
+  The analysis phase filters out files that don't need updates (`add: false`) to reduce processing costs.
+</Info>
+
+### Refactoring Prompt (Code Modernization)
+
+The refactoring prompt generates updated code with explanations:
+
+```python modal_write.py:89-98
+user_prompt = (
+    "Analyze the following code and determine if the syntax is out of date. "
+    "If it is out of date, specify what changes need to be made in the following JSON format:\n\n"
+    "{\n"
+    '  "refactored_code": "A rewrite of the file that is more up to date, using '
+                         'the native language. The file should be a complete file, '
+                         'not just a partial updated code segment.",\n'
+    '  "refactored_code_comments": "Comments and explanations for your code changes. '
+                                   'Be as descriptive, informative, and technical as possible."\n'
+    "}\n\n"
+    f"File: {file_path}\n\n"
+    f"Code:\n{code_content}"
+)
+```
+
+**System Prompt**:
+```python modal_write.py:106-109
+{
+    "role": "system",
+    "content": "You are a helpful assistant that analyzes code and returns 
+                a JSON object with the refactored code and the comments that 
+                come with it. Your goal is to identify outdated syntax in code 
+                and suggest changes to update it to the latest syntax."
+}
+```
+
+**Reference**: `backend/modal_write.py:89-115`
+
+<Tip>
+  The prompt explicitly asks for **complete file rewrites**, not just code snippets, ensuring the output is ready to commit.
+</Tip>
+
+## Structured Output with Pydantic
+
+### Using Instructor
+
+Dependify uses the **Instructor** library to enforce structured output from LLMs:
+
+```python modal_write.py:72-74
+client = Groq(api_key=GROQ_API_KEY)
+client = instructor.from_groq(client, mode=instructor.Mode.TOOLS)
+```
+
+**Reference**: `backend/modal_write.py:72-74`
+
+### Analysis Model
+
+```python checker.py:53-57
+class CodeChange(BaseModel):
+    path: str
+    code_content: str
+    reason: str
+    add: bool  # Whether to include in refactoring
+```
+
+**Reference**: `backend/checker.py:53-57`
+
+### Refactoring Model
+
+```python modal_write.py:67-69
+class JobReport(BaseModel):
+    refactored_code: str
+    refactored_code_comments: str
+```
+
+**Reference**: `backend/modal_write.py:67-69`
+
+<Info>
+  Pydantic models provide **type safety**, **validation**, and **automatic parsing** of LLM responses. If the LLM returns invalid JSON, Instructor automatically retries.
+</Info>
+
+## Validation Pipeline
+
+### Multi-Language Syntax Validation
+
+Every refactored file is validated for syntax correctness:
+
+```python validators.py:34-59
+class SyntaxValidator:
+    @staticmethod
+    def detect_language(file_path: str) -> str:
+        extension_map = {
+            '.py': 'python',
+            '.js': 'javascript',
+            '.jsx': 'javascript',
+            '.ts': 'typescript',
+            '.tsx': 'typescript',
+            '.go': 'go',
+            '.rs': 'rust',
+            '.java': 'java',
+        }
+        _, ext = os.path.splitext(file_path)
+        return extension_map.get(ext.lower(), 'unknown')
+```
+
+**Reference**: `backend/validators.py:34-59`
+
+### Language-Specific Validators
+
+<Tabs>
+  <Tab title="Python">
+    ```python validators.py:62-97
+    @staticmethod
+    def validate_python(code: str) -> ValidationResult:
+        try:
+            ast.parse(code)  # Use Python AST parser
+            return ValidationResult(
+                is_valid=True,
+                language='python'
+            )
+        except SyntaxError as e:
+            return ValidationResult(
+                is_valid=False,
+                language='python',
+                error_message=str(e),
+                line_number=e.lineno
+            )
+    ```
+    
+    Uses Python's built-in **AST parser** for accurate syntax checking.
+  </Tab>
+  
+  <Tab title="JavaScript/TypeScript">
+    ```python validators.py:100-168
+    @staticmethod
+    def validate_javascript(code: str) -> ValidationResult:
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.js', delete=False) as f:
+            f.write(code)
+            temp_path = f.name
+        
+        # Use Node.js --check flag
+        result = subprocess.run(
+            ['node', '--check', temp_path],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        
+        os.unlink(temp_path)
+        
+        if result.returncode == 0:
+            return ValidationResult(is_valid=True, language='javascript')
+        else:
+            return ValidationResult(
+                is_valid=False,
+                language='javascript',
+                error_message=result.stderr
+            )
+    ```
+    
+    Uses **Node.js** for JavaScript validation, **TypeScript compiler** for TS.
+  </Tab>
+  
+  <Tab title="Other Languages">
+    Similar validation for:
+    - **Go**: `gofmt -e` (validators.py:220-270)
+    - **Rust**: `rustc --parse-only` (validators.py:273-323)
+    - **Java**: `javac` (validators.py:326-400)
+    
+    **Fallback**: If language tools aren't installed, validation passes with warning.
+  </Tab>
+</Tabs>
+
+**Reference**: `backend/validators.py:62-400`
+
+### Validation Result
+
+```python validators.py:16-21
+@dataclass
+class ValidationResult:
+    is_valid: bool
+    language: str
+    error_message: Optional[str] = None
+    line_number: Optional[int] = None
+```
+
+**Reference**: `backend/validators.py:16-21`
+
+## Confidence Scoring
+
+### Scoring Algorithm
+
+Each refactored file receives a confidence score (0-100):
+
+```python validators.py:469-516
+@staticmethod
+def calculate_score(
+    old_code: str,
+    new_code: str,
+    validation_result: ValidationResult
+) -> ConfidenceScore:
+    """
+    Scoring formula:
+    - Syntax validation: 60 points (pass/fail)
+    - Complexity factor: 40 points (based on change size)
+    """
+    # Base score from syntax validation
+    syntax_score = 60 if validation_result.is_valid else 0
+    
+    # Calculate complexity factor
+    complexity_factor = ConfidenceScorer.calculate_complexity(old_code, new_code)
+    complexity_score = int(complexity_factor * 40)
+    
+    # Total score
+    total_score = syntax_score + complexity_score
+    
+    return ConfidenceScore(
+        score=total_score,
+        syntax_valid=validation_result.is_valid,
+        complexity_factor=complexity_factor,
+        factors={...}
+    )
+```
+
+**Reference**: `backend/validators.py:469-516`
+
+### Complexity Calculation
+
+```python validators.py:438-467
+@staticmethod
+def calculate_complexity(old_code: str, new_code: str) -> float:
+    """
+    Calculate complexity factor based on code changes.
+    
+    Returns:
+        Complexity factor (0.0 to 1.0, where 1.0 is low complexity)
+    """
+    old_lines = old_code.split('\n')
+    new_lines = new_code.split('\n')
+    
+    lines_changed = abs(len(new_lines) - len(old_lines))
+    total_lines = max(len(old_lines), len(new_lines))
+    
+    if total_lines == 0:
+        change_ratio = 0.0
+    else:
+        change_ratio = lines_changed / total_lines
+    
+    # Inverse: smaller changes = higher confidence
+    complexity_factor = max(0.0, 1.0 - change_ratio)
+    
+    return complexity_factor
+```
+
+**Reference**: `backend/validators.py:438-467`
+
+### Score Interpretation
+
+<Tabs>
+  <Tab title="High Confidence (80-100)">
+    - **Syntax**: ✅ Valid
+    - **Complexity**: Low (few changes)
+    - **Recommendation**: Safe to merge after quick review
+    - **Badge**: 🟢 HIGH CONFIDENCE
+  </Tab>
+  
+  <Tab title="Medium Confidence (60-79)">
+    - **Syntax**: ✅ Valid
+    - **Complexity**: Medium (moderate changes)
+    - **Recommendation**: Review changes carefully
+    - **Badge**: 🟡 MEDIUM CONFIDENCE
+  </Tab>
+  
+  <Tab title="Needs Review (0-59)">
+    - **Syntax**: ❌ Invalid or Complex: High
+    - **Recommendation**: Requires thorough testing
+    - **Badge**: 🔴 NEEDS REVIEW
+  </Tab>
+</Tabs>
+
+**Reference**: `backend/changelog_formatter.py:276-283`
+
+## Changelog Generation
+
+### AI-Explained Changelogs
+
+Dependify generates detailed changelogs inspired by GitButler's style:
+
+```python changelog_formatter.py:363-430
+@staticmethod
+def generate_pr_description(file_changes: List[FileChange]) -> str:
+    """
+    Generate detailed PR description similar to GitButler style.
+    Shows what changed, why it changed, and the impact.
+    """
+    pr_desc = []
+    pr_desc.append("## 🤖 Automated Code Modernization\n")
+    pr_desc.append("This pull request modernizes outdated code patterns...\n")
+    
+    # Summary
+    pr_desc.append("### 📝 Summary\n")
+    pr_desc.append(f"Updated **{total_files} files** with modern syntax...\n")
+    
+    # File-by-file breakdown
+    pr_desc.append("### 📁 Changes by File\n")
+    for fc in file_changes:
+        pr_desc.append(f"#### `{fc.file_path}`\n")
+        
+        # What changed
+        if fc.key_changes:
+            pr_desc.append("**What changed:**")
+            for change in fc.key_changes:
+                pr_desc.append(f"- {change}")
+        
+        # Why it changed (AI explanation)
+        if fc.explanation:
+            pr_desc.append("**Why:**")
+            pr_desc.append(f"> {fc.explanation}")
+    
+    return '\n'.join(pr_desc)
+```
+
+**Reference**: `backend/changelog_formatter.py:363-430`
+
+### FileChange Model
+
+```python changelog_formatter.py:12-23
+@dataclass
+class FileChange:
+    file_path: str
+    old_code: str
+    new_code: str
+    explanation: str              # AI explanation
+    confidence_score: int         # 0-100
+    language: str                 # python, javascript, etc.
+    lines_added: int              # Git-style diff
+    lines_removed: int            # Git-style diff
+    key_changes: List[str]        # Bullet points
+```
+
+**Reference**: `backend/changelog_formatter.py:12-23`
+
+### Diff Statistics
+
+Changelog uses **git-style diff** with `difflib`:
+
+```python changelog_formatter.py:78-115
+@staticmethod
+def calculate_diff_stats(old_code: str, new_code: str) -> tuple:
+    """
+    Calculate exact git-style diff statistics.
+    """
+    import difflib
+    
+    old_lines = old_code.split('\n') if old_code else []
+    new_lines = new_code.split('\n') if new_code else []
+    
+    matcher = difflib.SequenceMatcher(None, old_lines, new_lines)
+    
+    added = 0
+    removed = 0
+    
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == 'replace':
+            removed += (i2 - i1)
+            added += (j2 - j1)
+        elif tag == 'delete':
+            removed += (i2 - i1)
+        elif tag == 'insert':
+            added += (j2 - j1)
+    
+    return added, removed
+```
+
+**Reference**: `backend/changelog_formatter.py:78-115`
+
+## Error Handling
+
+### Retry Logic
+
+Instructor automatically retries on invalid JSON:
+
+```python modal_write.py:100-115
+try:
+    job_report = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[...],
+        response_model=JobReport,  # Pydantic model
+    )
+except (ValidationError, json.JSONDecodeError) as parse_error:
+    print(f"Error parsing LLM response: {parse_error}")
+    return None  # Skip file
+except Exception as e:
+    print(f"Error analyzing {file_path}: {e}")
+    return None
+```
+
+**Reference**: `backend/modal_write.py:100-186`
+
+### Graceful Degradation
+
+<Steps>
+  <Step title="Validation Failure">
+    If syntax validation fails, the file is still included but flagged:
+    ```python
+    confidence_score = 0  # Red flag for review
+    ```
+  </Step>
+  
+  <Step title="Missing Validator">
+    If language tools aren't installed (e.g., no `node` for JS):
+    ```python
+    return ValidationResult(
+        is_valid=True,  # Assume valid
+        error_message='Node.js not available for validation'
+    )
+    ```
+  </Step>
+  
+  <Step title="LLM Timeout">
+    Modal containers have 5-minute timeout per file:
+    ```python
+    @app.function(timeout=300)  # 5 minutes
+    ```
+    If exceeded, file is skipped.
+  </Step>
+  
+  <Step title="API Rate Limits">
+    Backend implements rate limiting to prevent Groq API exhaustion:
+    ```python
+    @limiter.limit("100/hour")
+    ```
+  </Step>
+</Steps>
+
+## Performance Optimization
+
+### Lazy Secret Initialization
+
+Modal secrets are lazily loaded to avoid initialization errors:
+
+```python checker.py:13-50
+_client = None
+_supabase_client = None
+
+def get_client():
+    """Get or create Groq client with API key."""
+    global _client
+    if _client is None:
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            from config import Config
+            api_key = Config.GROQ_API_KEY
+        
+        _client = instructor.from_groq(
+            Groq(api_key=api_key),
+            mode=instructor.Mode.JSON
+        )
+    return _client
+```
+
+**Reference**: `backend/checker.py:13-50`
+
+<Tip>
+  This pattern prevents errors when Modal containers import modules before secrets are injected.
+</Tip>
+
+### Container Warm Pools
+
+```python modal_write.py:24-26
+@app.function(
+    timeout=300,
+    max_containers=100,
+    min_containers=3,  # Keep 3 warm
+    secrets=[...]
+)
+```
+
+**Reference**: `backend/modal_write.py:24-26`
+
+Maintaining 3 warm containers reduces cold start latency from ~5s to instant.
+
+## Real-time Progress Updates
+
+Supabase tracks progress for live dashboard updates:
+
+```python modal_write.py:145-161
+data = {
+    "status": "WRITING",
+    "message": f"✍️ Updating {filename}",
+    "code": job_report.refactored_code
+}
+supabase_client.table("repo-updates").insert(data).execute()
+```
+
+**Status Types**:
+- `READING` - Analyzing file (checker.py)
+- `WRITING` - Refactoring file (modal_write.py)
+- `LOADING` - Git operations (git_driver.py)
+- `COMPLETE` - PR created
+
+**Reference**: `backend/modal_write.py:145-161`
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="System Architecture" icon="sitemap" href="/architecture/overview">
+    See how AI processing fits in the overall system
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/auth/oauth">
+    Explore the complete API documentation
+  </Card>
+</CardGroup>

@@ -1,0 +1,393 @@
+---
+title: 'Environment Variables'
+description: 'Complete reference for all environment variables used in Dependify'
+icon: 'key'
+---
+
+Dependify uses environment variables to configure the application for different environments. This page documents all available variables, their purposes, and where to obtain the required API keys.
+
+## Overview
+
+Environment variables are split between three locations:
+
+1. **Backend** - `.env` file in `backend/` directory
+2. **Frontend** - `.env.local` file in `frontend/` directory  
+3. **Modal** - Secrets stored in Modal for serverless containers
+
+## Backend Variables
+
+These variables are defined in `backend/.env` and loaded by `config.py`.
+
+### AI & Processing
+
+<ParamField path="GROQ_API_KEY" type="string" required>
+  API key for Groq AI inference service. Used for both code analysis and refactoring with Llama models.
+  
+  **Where to get**: [console.groq.com](https://console.groq.com/)
+  
+  **Models used**:
+  - `llama-3.1-8b-instant` - Fast file analysis
+  - `llama-3.3-70b-versatile` - High-quality code refactoring
+
+  ```bash
+  GROQ_API_KEY=gsk_...
+  ```
+</ParamField>
+
+<ParamField path="ANTHROPIC_API_KEY" type="string" optional>
+  API key for Anthropic's Claude models (optional fallback).
+  
+  **Where to get**: [console.anthropic.com](https://console.anthropic.com/)
+  
+  **Status**: Not currently used in production but available for future features.
+
+  ```bash
+  ANTHROPIC_API_KEY=sk-ant-...
+  ```
+</ParamField>
+
+### Database
+
+<ParamField path="SUPABASE_URL" type="string" required>
+  URL for your Supabase project. Used for real-time progress updates and session management.
+  
+  **Where to get**: [app.supabase.com](https://app.supabase.com/) → Project Settings → API
+  
+  **Format**: `https://your-project.supabase.co`
+
+  ```bash
+  SUPABASE_URL=https://abcdefghijklmnop.supabase.co
+  ```
+</ParamField>
+
+<ParamField path="SUPABASE_KEY" type="string" required>
+  Service role key for Supabase. **Use the service role key, not the anon key** for backend operations.
+  
+  **Where to get**: [app.supabase.com](https://app.supabase.com/) → Project Settings → API → service_role key
+  
+  <Warning>
+    The service role key has admin privileges. Keep it secret and never expose it in frontend code.
+  </Warning>
+
+  ```bash
+  SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+  ```
+</ParamField>
+
+### GitHub
+
+<ParamField path="GITHUB_CLIENT_ID" type="string" required>
+  Client ID for your GitHub OAuth application. Used for user authentication.
+  
+  **Where to get**: Create an OAuth app at [github.com/settings/developers](https://github.com/settings/developers)
+  
+  **OAuth App Settings**:
+  - Homepage URL: `http://localhost:3000` (dev) or `https://yourdomain.com` (prod)
+  - Callback URL: `http://localhost:3000/auth/callback` (dev) or `https://yourdomain.com/auth/callback` (prod)
+
+  ```bash
+  GITHUB_CLIENT_ID=Iv1.a1b2c3d4e5f6g7h8
+  ```
+</ParamField>
+
+<ParamField path="GITHUB_CLIENT_SECRET" type="string" required>
+  Client secret for your GitHub OAuth application.
+  
+  **Where to get**: Same location as Client ID. Generate a new secret if needed.
+
+  ```bash
+  GITHUB_CLIENT_SECRET=1234567890abcdef1234567890abcdef12345678
+  ```
+</ParamField>
+
+<ParamField path="GITHUB_TOKEN" type="string" required>
+  Personal access token for GitHub API operations (creating forks, PRs, pushing code).
+  
+  **Where to get**: [github.com/settings/tokens](https://github.com/settings/tokens) → Generate new token (classic)
+  
+  **Required scopes**:
+  - `repo` - Full control of private repositories
+  - `workflow` - Update GitHub Actions workflows (if needed)
+  
+  <Warning>
+    This token is used to create forks and push changes. It should belong to a service account or the main developer account.
+  </Warning>
+
+  ```bash
+  GITHUB_TOKEN=ghp_1234567890abcdefghijklmnopqrstuvwxyz
+  ```
+</ParamField>
+
+### Security
+
+<ParamField path="API_SECRET_KEY" type="string" required>
+  Secret key for signing JWT tokens. Used for session management and API authentication.
+  
+  **How to generate**:
+  ```bash
+  openssl rand -hex 32
+  ```
+  
+  Or use Python:
+  ```python
+  import secrets
+  print(secrets.token_hex(32))
+  ```
+
+  ```bash
+  API_SECRET_KEY=abc123def456ghi789jkl012mno345pqr678stu901vwx234yz
+  ```
+</ParamField>
+
+### Server Configuration
+
+<ParamField path="PORT" type="number" default="5001">
+  Port for the FastAPI backend server.
+
+  ```bash
+  PORT=5001
+  ```
+</ParamField>
+
+<ParamField path="FRONTEND_URL" type="string" required>
+  URL of the frontend application. Used for CORS configuration.
+  
+  **Development**: `http://localhost:3000`
+  
+  **Production**: Your Vercel deployment URL (e.g., `https://dependify.vercel.app`)
+
+  ```bash
+  FRONTEND_URL=http://localhost:3000
+  ```
+</ParamField>
+
+### Rate Limiting
+
+<ParamField path="RATE_LIMIT_PER_MINUTE" type="number" default="10">
+  Maximum requests per minute per IP address.
+
+  ```bash
+  RATE_LIMIT_PER_MINUTE=10
+  ```
+</ParamField>
+
+<ParamField path="RATE_LIMIT_PER_HOUR" type="number" default="100">
+  Maximum requests per hour per IP address. Applied to the `/update` endpoint.
+
+  ```bash
+  RATE_LIMIT_PER_HOUR=100
+  ```
+</ParamField>
+
+## Frontend Variables
+
+These variables are defined in `frontend/.env.local`. All frontend variables must start with `NEXT_PUBLIC_` to be available in the browser.
+
+<ParamField path="NEXT_PUBLIC_GITHUB_CLIENT_ID" type="string" required>
+  Same GitHub OAuth Client ID used in the backend. Required for initiating OAuth flow.
+
+  ```bash
+  NEXT_PUBLIC_GITHUB_CLIENT_ID=Iv1.a1b2c3d4e5f6g7h8
+  ```
+</ParamField>
+
+<ParamField path="NEXT_PUBLIC_API_URL" type="string" required>
+  URL of the backend API.
+  
+  **Development**: `http://localhost:5001`
+  
+  **Production**: Your Render deployment URL (e.g., `https://dependify-api.onrender.com`)
+
+  ```bash
+  NEXT_PUBLIC_API_URL=http://localhost:5001
+  ```
+</ParamField>
+
+<ParamField path="NEXT_PUBLIC_SUPABASE_URL" type="string" required>
+  Same Supabase URL used in the backend. Required for real-time subscriptions.
+
+  ```bash
+  NEXT_PUBLIC_SUPABASE_URL=https://abcdefghijklmnop.supabase.co
+  ```
+</ParamField>
+
+<ParamField path="NEXT_PUBLIC_SUPABASE_ANON_KEY" type="string" required>
+  Supabase anonymous key for frontend. **Use the anon key, not the service role key**.
+  
+  **Where to get**: [app.supabase.com](https://app.supabase.com/) → Project Settings → API → anon public key
+  
+  <Note>
+    The anon key is safe to expose in frontend code. It has limited permissions controlled by Row Level Security (RLS) policies.
+  </Note>
+
+  ```bash
+  NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+  ```
+</ParamField>
+
+## Modal Secrets
+
+Modal containers require secrets to be configured separately using the Modal CLI. These secrets are injected as environment variables when containers run.
+
+<Steps>
+  <Step title="Install Modal CLI">
+    ```bash
+    pip install modal
+    modal setup
+    ```
+  </Step>
+
+  <Step title="Create secrets">
+    ```bash
+    modal secret create GROQ_API_KEY
+    modal secret create SUPABASE_URL
+    modal secret create SUPABASE_KEY
+    ```
+    
+    Each command will prompt you to enter the secret value.
+  </Step>
+
+  <Step title="Verify secrets">
+    ```bash
+    modal secret list
+    ```
+    
+    You should see your three secrets listed.
+  </Step>
+</Steps>
+
+<Note>
+  Modal secrets must use the **exact same values** as your backend `.env` file for Groq and Supabase variables.
+</Note>
+
+## Configuration Validation
+
+The backend automatically validates required environment variables on startup:
+
+```python
+# backend/config.py
+required_vars = {
+    "GROQ_API_KEY": Config.GROQ_API_KEY,
+    "SUPABASE_URL": Config.SUPABASE_URL,
+    "SUPABASE_KEY": Config.SUPABASE_KEY,
+    "GITHUB_TOKEN": Config.GITHUB_TOKEN,
+    "API_SECRET_KEY": Config.API_SECRET_KEY,
+}
+```
+
+If any required variables are missing, you'll see a warning on startup:
+
+```
+⚠️  WARNING: Missing required environment variables: GROQ_API_KEY, GITHUB_TOKEN
+Please create a .env file based on .env.example and fill in the required values.
+```
+
+## Environment-Specific Configuration
+
+### Development
+
+<CodeGroup>
+```bash backend/.env
+GROQ_API_KEY=gsk_...
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=eyJ...
+GITHUB_CLIENT_ID=Iv1...
+GITHUB_CLIENT_SECRET=abc...
+GITHUB_TOKEN=ghp_...
+API_SECRET_KEY=random-secret-key
+FRONTEND_URL=http://localhost:3000
+PORT=5001
+```
+
+```bash frontend/.env.local
+NEXT_PUBLIC_GITHUB_CLIENT_ID=Iv1...
+NEXT_PUBLIC_API_URL=http://localhost:5001
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
+```
+</CodeGroup>
+
+### Production
+
+<CodeGroup>
+```bash Render (Backend)
+GROQ_API_KEY=gsk_...
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=eyJ...
+GITHUB_CLIENT_ID=Iv1...
+GITHUB_CLIENT_SECRET=abc...
+GITHUB_TOKEN=ghp_...
+API_SECRET_KEY=random-secret-key
+FRONTEND_URL=https://dependify.vercel.app
+PORT=5001
+```
+
+```bash Vercel (Frontend)
+NEXT_PUBLIC_GITHUB_CLIENT_ID=Iv1...
+NEXT_PUBLIC_API_URL=https://dependify-api.onrender.com
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
+```
+</CodeGroup>
+
+## Security Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Never commit secrets" icon="lock">
+    Add `.env` and `.env.local` to `.gitignore`. Use `.env.example` for documentation.
+  </Card>
+  
+  <Card title="Use different keys per environment" icon="key">
+    Generate separate API keys for development and production.
+  </Card>
+  
+  <Card title="Rotate tokens regularly" icon="rotate">
+    Regenerate GitHub tokens and API keys periodically for security.
+  </Card>
+  
+  <Card title="Limit token scopes" icon="shield">
+    Only grant the minimum required permissions to each token.
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Configuration validation fails">
+    If you see missing environment variable warnings:
+    
+    1. Verify the `.env` file exists in the correct directory
+    2. Check for typos in variable names (they're case-sensitive)
+    3. Ensure there are no spaces around the `=` sign
+    4. Restart the server after making changes
+  </Accordion>
+
+  <Accordion title="Modal secrets not loading">
+    If containers can't access secrets:
+    
+    1. Run `modal secret list` to verify secrets exist
+    2. Check that secret names match exactly: `GROQ_API_KEY`, `SUPABASE_URL`, `SUPABASE_KEY`
+    3. Redeploy containers after creating/updating secrets
+    4. View container logs in Modal dashboard for detailed error messages
+  </Accordion>
+
+  <Accordion title="CORS errors">
+    If you see CORS errors in the browser:
+    
+    1. Verify `FRONTEND_URL` in backend matches your frontend URL exactly
+    2. For production, use the full domain (e.g., `https://dependify.vercel.app`)
+    3. No trailing slash in URLs
+    4. Restart backend after changing CORS settings
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Setup Guide" icon="code" href="/development/setup">
+    Complete local development setup
+  </Card>
+  <Card title="Deployment" icon="rocket" href="/development/deployment">
+    Deploy to production
+  </Card>
+</CardGroup>

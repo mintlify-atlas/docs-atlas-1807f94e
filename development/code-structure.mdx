@@ -1,0 +1,621 @@
+---
+title: 'Codebase Structure'
+description: 'Understand how Dependify is organized and how data flows through the system'
+icon: 'folder-tree'
+---
+
+This guide explains Dependify's codebase structure, key files, and how data flows through the system from repository analysis to PR creation.
+
+## Repository Overview
+
+```
+Dependify2.0/
+├── backend/           # FastAPI server and Modal containers
+├── frontend/          # Next.js 15 application
+├── README.md          # Project overview and setup
+└── render.yaml        # Render deployment configuration
+```
+
+## Backend Structure
+
+The backend is a FastAPI application with Modal serverless containers for parallel processing.
+
+### Directory Layout
+
+```
+backend/
+├── server.py                 # Main FastAPI application
+├── config.py                 # Environment configuration
+├── auth.py                   # GitHub OAuth and JWT auth
+├── containers.py             # Modal container for file analysis
+├── modal_write.py            # Modal container for code refactoring
+├── git_driver.py             # Git operations (fork, clone, push, PR)
+├── checker.py                # File analysis with Groq AI
+├── validators.py             # Code validation and confidence scoring
+├── changelog_formatter.py    # PR description generation
+├── socket_manager.py         # WebSocket connection management
+├── requirements.txt          # Python dependencies
+└── website-test/            # Test files
+```
+
+### Key Files
+
+<AccordionGroup>
+  <Accordion title="server.py - Main API Server">
+    **Purpose**: FastAPI application serving the main API
+    
+    **Key endpoints**:
+    - `GET /` - API information
+    - `GET /health` - Health check
+    - `POST /auth/github` - GitHub OAuth token exchange
+    - `GET /auth/me` - Get current user
+    - `POST /update` - Process repository (main workflow)
+    - `WebSocket /ws` - Real-time updates
+    
+    **Main workflow** (`/update` endpoint):
+    ```python
+    1. Clone repository to staging directory
+    2. Call containers.py (Modal) to analyze files
+    3. Call modal_write.py (Modal) to refactor files in parallel
+    4. Create fork (or use original repo if owned)
+    5. Apply refactored code to files
+    6. Create branch and push changes
+    7. Generate AI-explained changelog
+    8. Create pull request
+    9. Clean up staging directory
+    ```
+    
+    **Rate limiting**: 10/minute, 100/hour per IP
+    
+    **Location**: `backend/server.py:141` - `/update` endpoint
+  </Accordion>
+
+  <Accordion title="config.py - Configuration Management">
+    **Purpose**: Centralized environment variable management
+    
+    **Configuration class**:
+    ```python
+    class Config:
+        GROQ_API_KEY: str
+        SUPABASE_URL: str
+        SUPABASE_KEY: str
+        GITHUB_TOKEN: str
+        GITHUB_CLIENT_ID: str
+        GITHUB_CLIENT_SECRET: str
+        ANTHROPIC_API_KEY: str  # Optional
+        PORT: int = 5001
+        FRONTEND_URL: str
+        API_SECRET_KEY: str
+        RATE_LIMIT_PER_MINUTE: int = 10
+        RATE_LIMIT_PER_HOUR: int = 100
+    ```
+    
+    **Validation**: Automatically validates required variables on import
+    
+    **Location**: `backend/config.py:12`
+  </Accordion>
+
+  <Accordion title="auth.py - Authentication Service">
+    **Purpose**: Handle GitHub OAuth and JWT token management
+    
+    **Key functions**:
+    - `exchange_github_code()` - Exchange OAuth code for GitHub token
+    - `create_access_token()` - Create JWT for API authentication
+    - `verify_token()` - Verify and decode JWT tokens
+    - `get_current_user()` - FastAPI dependency for protected routes
+    
+    **Token expiration**: 24 hours
+    
+    **Algorithm**: HS256 (HMAC-SHA256)
+    
+    **Location**: `backend/auth.py:20`
+  </Accordion>
+
+  <Accordion title="containers.py - File Analysis Container">
+    **Purpose**: Modal serverless container for analyzing repository files
+    
+    **Modal app**: `groq-read`
+    
+    **Function**: `run_script(repo_url: str) -> list[CodeChange]`
+    
+    **Workflow**:
+    ```python
+    1. Clone repository to Modal container
+    2. Recursively scan all files
+    3. Analyze each file with Groq (llama-3.1-8b-instant)
+    4. Identify files with outdated syntax
+    5. Return list of files needing updates
+    ```
+    
+    **Filtering**: Skips `.css`, `.json`, `.md`, `.svg`, hidden files, and `.git/`
+    
+    **Location**: `backend/containers.py:18`
+  </Accordion>
+
+  <Accordion title="modal_write.py - Code Refactoring Container">
+    **Purpose**: Modal serverless container for refactoring code with AI
+    
+    **Modal app**: `groq-write`
+    
+    **Function**: `process_file(job) -> dict`
+    
+    **Configuration**:
+    - Timeout: 300 seconds (5 minutes per file)
+    - Max containers: 100 (parallel processing)
+    - Min containers: 3 (kept warm)
+    - Model: llama-3.3-70b-versatile
+    
+    **Workflow**:
+    ```python
+    1. Receive file path and content
+    2. Send to Groq for refactoring
+    3. Validate refactored code syntax
+    4. Calculate confidence score
+    5. Generate changelog with key changes
+    6. Update Supabase with progress
+    7. Return refactored code and metadata
+    ```
+    
+    **Output**:
+    ```python
+    {
+      "file_path": str,
+      "original_code": str,
+      "refactored_code": str,
+      "refactored_code_comments": str,
+      "validation": {"is_valid": bool, "language": str},
+      "confidence_score": float,
+      "changelog": {"lines_added": int, "lines_removed": int}
+    }
+    ```
+    
+    **Location**: `backend/modal_write.py:33`
+  </Accordion>
+
+  <Accordion title="git_driver.py - Git Operations">
+    **Purpose**: Manage all Git and GitHub API operations
+    
+    **Key functions**:
+    
+    **`create_fork(repo_owner, repo_name)`** - `git_driver.py:11`
+    - Check if user owns the repository
+    - Create fork if needed (or return existing fork)
+    - Returns repository info with `is_own_repo` flag
+    
+    **`load_repository(repo_path)`** - `git_driver.py:88`
+    - Load Git repository from path
+    - Get origin remote and URL
+    
+    **`create_and_push_branch(repo, origin, files)`** - `git_driver.py:114`
+    - Create unique branch name (`dependify-{uuid}`)
+    - Stage and commit changes
+    - Push to remote with authentication
+    
+    **`create_pull_request(...)`** - `git_driver.py:182`
+    - Generate PR title and description
+    - Create PR from fork to original repo (or within same repo)
+    - Include AI-generated changelog
+    - Return PR URL
+    
+    **GitHub API usage**:
+    - Authentication: Personal access token
+    - Required scope: `repo` (full repository access)
+  </Accordion>
+
+  <Accordion title="checker.py - File Analysis Logic">
+    **Purpose**: Core logic for analyzing files with AI
+    
+    **Key functions**:
+    
+    **`get_all_files_recursively(root_directory)`** - `checker.py:59`
+    - Recursively walk directory tree
+    - Return all file paths
+    
+    **`analyze_file_with_llm(file_path)`** - `checker.py:71`
+    - Read file content
+    - Query Groq AI to detect outdated syntax
+    - Update Supabase with progress
+    - Return `CodeChange` Pydantic model
+    
+    **`fetch_updates(directory)`** - `checker.py:136`
+    - Iterate through all files
+    - Skip excluded extensions
+    - Analyze each file with LLM
+    - Return list of files needing updates
+    
+    **Model used**: `llama-3.1-8b-instant` (fast analysis)
+    
+    **Location**: `backend/checker.py:71`
+  </Accordion>
+
+  <Accordion title="validators.py - Code Validation">
+    **Purpose**: Validate refactored code syntax and calculate confidence scores
+    
+    **Key functions**:
+    
+    **`SyntaxValidator.detect_language(file_path)`**
+    - Detect programming language from file extension
+    - Support for .js, .jsx, .ts, .tsx, .py, etc.
+    
+    **`validate_and_score(file_path, old_code, new_code)`**
+    - Parse code syntax (JavaScript, TypeScript, Python)
+    - Check for syntax errors
+    - Calculate confidence score based on:
+      - Syntax validity (40%)
+      - Code length similarity (20%)
+      - Line count difference (20%)
+      - Structural changes (20%)
+    
+    **Confidence levels**:
+    - 80-100: High confidence
+    - 60-79: Medium confidence
+    - 0-59: Low confidence
+    
+    **Location**: `backend/validators.py`
+  </Accordion>
+
+  <Accordion title="changelog_formatter.py - Changelog Generation">
+    **Purpose**: Generate AI-explained changelogs for pull requests
+    
+    **Key functions**:
+    
+    **`format_file_change(file_path, old_code, new_code, ...)`**
+    - Calculate diff statistics (lines added/removed)
+    - Extract key changes using AI
+    - Return `FileChange` object
+    
+    **`generate_pr_description(file_changes)`**
+    - Aggregate all file changes
+    - Generate markdown PR description
+    - Include summary, file-by-file breakdown, stats
+    
+    **PR format**:
+    ```markdown
+    ## Summary
+    - Key change 1
+    - Key change 2
+    
+    ## Files Changed (X files)
+    
+    ### `path/to/file.js`
+    **Changes**: Lines +X/-Y | Confidence: XX%
+    
+    **What changed**:
+    - Change description
+    
+    ## Quality Metrics
+    - Average confidence: XX%
+    - All files validated: ✅/⚠️
+    ```
+    
+    **Location**: `backend/changelog_formatter.py`
+  </Accordion>
+</AccordionGroup>
+
+## Frontend Structure
+
+The frontend is a Next.js 15 application with React 19 and Tailwind CSS.
+
+### Directory Layout
+
+```
+frontend/
+├── src/
+│   ├── app/                      # Next.js app router
+│   │   ├── page.tsx             # Home page (landing)
+│   │   ├── login/page.tsx       # Login page
+│   │   ├── auth/callback/       # OAuth callback handler
+│   │   ├── test/page.tsx        # Test page for development
+│   │   ├── layout.tsx           # Root layout
+│   │   ├── globals.css          # Global styles
+│   │   └── lib/
+│   │       └── supabaseClient.ts # Supabase client setup
+│   ├── components/              # React components
+│   │   ├── MainDash.tsx         # Main dashboard
+│   │   ├── RepositoryPage.tsx   # Repository processing UI
+│   │   ├── LiveCodeCard.tsx     # Real-time code preview
+│   │   ├── MultiFileCodeCard.tsx # Multi-file diff viewer
+│   │   ├── FeaturesShowcase.tsx # Landing page features
+│   │   ├── GradientCanvas.tsx   # Animated background
+│   │   └── ui/                  # shadcn/ui components
+│   │       ├── button.tsx
+│   │       ├── card.tsx
+│   │       ├── badge.tsx
+│   │       └── ...
+│   ├── models/                  # TypeScript types
+│   │   └── Repository.ts        # Repository data models
+│   └── lib/
+│       └── utils.ts             # Utility functions
+├── public/                       # Static assets
+│   ├── *.svg                    # Icons and graphics
+│   └── pou-transparent-cropped.png
+├── package.json                 # Dependencies
+├── tsconfig.json                # TypeScript config
+├── next.config.ts               # Next.js configuration
+└── tailwind.config.ts           # Tailwind CSS config
+```
+
+### Key Files
+
+<AccordionGroup>
+  <Accordion title="app/page.tsx - Landing Page">
+    **Purpose**: Main landing page with features showcase
+    
+    **Components used**:
+    - `FeaturesShowcase` - Highlight key features
+    - `GradientCanvas` - Animated background
+    - Call-to-action buttons
+    
+    **Navigation**: Links to `/login` for authentication
+    
+    **Location**: `frontend/src/app/page.tsx`
+  </Accordion>
+
+  <Accordion title="app/login/page.tsx - Login Page">
+    **Purpose**: GitHub OAuth authentication
+    
+    **Flow**:
+    ```typescript
+    1. User clicks "Continue with GitHub"
+    2. Redirect to GitHub OAuth:
+       https://github.com/login/oauth/authorize
+       ?client_id=...
+       &redirect_uri=.../auth/callback
+       &scope=repo
+    3. GitHub redirects to callback with code
+    ```
+    
+    **Location**: `frontend/src/app/login/page.tsx`
+  </Accordion>
+
+  <Accordion title="app/auth/callback/page.tsx - OAuth Callback">
+    **Purpose**: Handle GitHub OAuth callback
+    
+    **Flow**:
+    ```typescript
+    1. Receive code from GitHub
+    2. Send code to backend POST /auth/github
+    3. Receive JWT token and user info
+    4. Store token in localStorage
+    5. Redirect to dashboard
+    ```
+    
+    **Location**: `frontend/src/app/auth/callback/page.tsx`
+  </Accordion>
+
+  <Accordion title="components/MainDash.tsx - Main Dashboard">
+    **Purpose**: Main application dashboard after login
+    
+    **Features**:
+    - Repository URL input with validation
+    - Start analysis button
+    - Real-time progress updates via Supabase
+    - Display PR link when complete
+    
+    **Supabase subscription**:
+    ```typescript
+    supabase
+      .channel('repo-updates')
+      .on('postgres_changes', 
+          { event: 'INSERT', schema: 'public', table: 'repo-updates' },
+          (payload) => {
+            // Update UI with progress
+          }
+      )
+      .subscribe();
+    ```
+    
+    **Location**: `frontend/src/components/MainDash.tsx`
+  </Accordion>
+
+  <Accordion title="components/RepositoryPage.tsx - Repository Processing">
+    **Purpose**: Display repository analysis and refactoring progress
+    
+    **Features**:
+    - File list with processing status
+    - Real-time code changes preview
+    - Confidence scores and validation results
+    - PR creation status
+    
+    **API call**:
+    ```typescript
+    const response = await fetch(`${API_URL}/update`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        repository: repoUrl,
+        repository_owner: owner,
+        repository_name: name
+      })
+    });
+    ```
+    
+    **Location**: `frontend/src/components/RepositoryPage.tsx`
+  </Accordion>
+
+  <Accordion title="components/LiveCodeCard.tsx - Code Preview">
+    **Purpose**: Display before/after code comparison
+    
+    **Features**:
+    - Syntax highlighting (react-syntax-highlighter)
+    - Side-by-side diff view
+    - Confidence score badge
+    - Explanation text
+    
+    **Location**: `frontend/src/components/LiveCodeCard.tsx`
+  </Accordion>
+
+  <Accordion title="app/lib/supabaseClient.ts - Supabase Setup">
+    **Purpose**: Initialize Supabase client for real-time updates
+    
+    **Configuration**:
+    ```typescript
+    import { createClient } from '@supabase/supabase-js';
+    
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+    ```
+    
+    **Usage**: Real-time subscriptions to `repo-updates` table
+    
+    **Location**: `frontend/src/app/lib/supabaseClient.ts`
+  </Accordion>
+</AccordionGroup>
+
+## Data Flow
+
+Here's how data flows through Dependify from start to finish:
+
+<Steps>
+  <Step title="User Authentication">
+    ```
+    User → Frontend → GitHub OAuth → Backend /auth/github → JWT Token → Frontend
+    ```
+    
+    - User clicks "Continue with GitHub"
+    - Redirected to GitHub for authorization
+    - GitHub redirects back with code
+    - Frontend sends code to backend
+    - Backend exchanges code for GitHub token
+    - Backend creates JWT token
+    - Frontend stores JWT in localStorage
+  </Step>
+
+  <Step title="Repository Submission">
+    ```
+    Frontend → Backend POST /update → staging directory
+    ```
+    
+    - User pastes GitHub repository URL
+    - Frontend validates URL format
+    - Sends request to backend with JWT
+    - Backend creates staging directory
+  </Step>
+
+  <Step title="File Analysis">
+    ```
+    Backend → Modal containers.py → Groq AI → List of outdated files
+    ```
+    
+    - Backend calls Modal `run_script()` function
+    - Modal container clones repository
+    - Scans all files recursively
+    - Each file analyzed with Groq AI (llama-3.1-8b-instant)
+    - Returns list of files needing updates
+    - Updates Supabase with progress
+  </Step>
+
+  <Step title="Code Refactoring (Parallel)">
+    ```
+    Backend → Modal modal_write.py (100 parallel containers) → Refactored code
+    ```
+    
+    - Backend calls Modal `process_file()` for each file
+    - Up to 100 files processed in parallel
+    - Each container:
+      - Receives file content
+      - Refactors with Groq AI (llama-3.3-70b-versatile)
+      - Validates syntax
+      - Calculates confidence score
+      - Generates changelog
+      - Updates Supabase
+    - Returns all refactored files
+  </Step>
+
+  <Step title="Git Operations">
+    ```
+    Backend → GitHub API (fork) → Git clone → Apply changes → Push branch
+    ```
+    
+    - Check if user owns repository
+    - Create fork if needed (or use original)
+    - Clone repository with authentication
+    - Create unique branch (`dependify-{uuid}`)
+    - Write refactored code to files
+    - Stage, commit, and push changes
+  </Step>
+
+  <Step title="Pull Request Creation">
+    ```
+    Backend → Generate changelog → GitHub API (create PR) → PR URL
+    ```
+    
+    - Generate AI-explained changelog
+    - Format PR description with file changes
+    - Create PR via GitHub API
+    - Return PR URL to frontend
+  </Step>
+
+  <Step title="Real-time Updates">
+    ```
+    Backend/Modal → Supabase INSERT → Supabase Realtime → Frontend subscription
+    ```
+    
+    - Backend and Modal containers insert progress updates
+    - Supabase broadcasts changes via WebSocket
+    - Frontend receives updates in real-time
+    - UI updates with current status
+  </Step>
+</Steps>
+
+## Key Technologies
+
+<CardGroup cols={2}>
+  <Card title="FastAPI" icon="bolt">
+    High-performance async API framework
+    
+    **Location**: `backend/server.py`
+  </Card>
+  
+  <Card title="Modal" icon="cube">
+    Serverless containers for parallel processing
+    
+    **Location**: `backend/containers.py`, `backend/modal_write.py`
+  </Card>
+  
+  <Card title="Groq" icon="brain">
+    Lightning-fast AI inference
+    
+    **Models**: llama-3.1-8b-instant, llama-3.3-70b-versatile
+  </Card>
+  
+  <Card title="Next.js 15" icon="react">
+    React framework with app router
+    
+    **Location**: `frontend/src/app/`
+  </Card>
+  
+  <Card title="Supabase" icon="database">
+    Real-time PostgreSQL database
+    
+    **Usage**: Progress updates, subscriptions
+  </Card>
+  
+  <Card title="GitPython" icon="git-alt">
+    Python library for Git operations
+    
+    **Location**: `backend/git_driver.py`
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Setup Guide" icon="code" href="/development/setup">
+    Set up local development environment
+  </Card>
+  <Card title="Contributing" icon="code-pull-request" href="/development/contributing">
+    Start contributing to the codebase
+  </Card>
+  <Card title="Environment Variables" icon="key" href="/development/environment-variables">
+    Configure your environment
+  </Card>
+  <Card title="Deployment" icon="rocket" href="/development/deployment">
+    Deploy to production
+  </Card>
+</CardGroup>

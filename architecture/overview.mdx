@@ -1,0 +1,370 @@
+---
+title: 'System Architecture Overview'
+description: 'Complete technical architecture of Dependify - from frontend to AI processing'
+icon: 'sitemap'
+---
+
+## Architecture Overview
+
+Dependify 2.0 is built as a modern, serverless-first application that leverages cutting-edge cloud infrastructure to deliver AI-powered code modernization at scale.
+
+## System Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                         USER                                 │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│               Next.js 15 Frontend (Vercel)                   │
+│  • App Router with Server Components                         │
+│  • Real-time Dashboard (Supabase Realtime)                   │
+│  • GitHub OAuth Integration                                  │
+│  • Responsive UI with Tailwind + Framer Motion               │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│              FastAPI Backend (Render)                        │
+│  • RESTful API + WebSocket Support                           │
+│  • Rate Limiting (SlowAPI)                                   │
+│  • JWT Authentication                                        │
+│  • CORS Configuration                                        │
+└──────────────┬──────────────────┬──────────────────────────┘
+               │                  │
+               ▼                  ▼
+    ┌──────────────────┐  ┌──────────────────┐
+    │  Modal.com       │  │  GitHub API      │
+    │  Containers      │  │  • Fork/Clone    │
+    │  • Analysis      │  │  • Branch/Push   │
+    │  • Refactoring   │  │  • Pull Requests │
+    │  • Parallel      │  └──────────────────┘
+    │    Processing    │
+    └────────┬─────────┘
+             │
+             ▼
+    ┌──────────────────┐
+    │  Groq AI         │
+    │  • llama-3.1-8b  │
+    │  • llama-3.3-70b │
+    │  • Fast Inference│
+    └────────┬─────────┘
+             │
+             ▼
+    ┌──────────────────┐
+    │  Supabase        │
+    │  • PostgreSQL    │
+    │  • Real-time     │
+    │  • Updates       │
+    └──────────────────┘
+```
+
+## Data Flow
+
+Here's how a typical code modernization request flows through the system:
+
+### 1. User Initiates Request
+```
+User (Browser) → GitHub OAuth → Next.js Frontend
+```
+
+The user authenticates via GitHub OAuth and pastes a repository URL into the dashboard.
+
+### 2. Repository Processing
+```
+Next.js → FastAPI → Modal Containers (Analysis)
+```
+
+The backend triggers Modal serverless containers to clone and analyze the repository:
+- **containers.py:run_script()** - Clones repo and scans for outdated syntax
+- Uses **Groq AI (llama-3.1-8b-instant)** for fast file analysis
+- Returns list of files needing updates
+
+### 3. Parallel Refactoring
+```
+FastAPI → Modal Containers (100+ parallel) → Groq AI
+```
+
+Each file is processed in parallel:
+- **modal_write.py:process_file()** - Refactors code using LLM
+- Uses **Groq AI (llama-3.3-70b-versatile)** for high-quality refactoring
+- Validates syntax and calculates confidence scores
+- Updates Supabase for real-time progress
+
+### 4. Git Operations
+```
+FastAPI → GitHub API → Fork/Clone → Branch → Commit → Push → PR
+```
+
+The backend automates the entire Git workflow:
+- **git_driver.py:create_fork()** - Creates fork if needed (or uses original repo)
+- **git_driver.py:create_and_push_branch()** - Creates branch with changes
+- **git_driver.py:create_pull_request()** - Submits PR with AI-generated changelog
+
+### 5. Real-time Updates
+```
+Modal → Supabase → Next.js (via Realtime subscription)
+```
+
+Users see live progress updates in the dashboard as files are processed.
+
+## Technology Stack
+
+### Frontend
+
+<CardGroup cols={2}>
+  <Card title="Next.js 15" icon="react">
+    Modern React framework with App Router and Server Components for optimal performance
+  </Card>
+  <Card title="Vercel" icon="cloud">
+    Edge-optimized hosting with automatic deployments and global CDN
+  </Card>
+  <Card title="Tailwind CSS" icon="paintbrush">
+    Utility-first CSS framework for rapid UI development
+  </Card>
+  <Card title="Framer Motion" icon="wand-magic-sparkles">
+    Smooth animations and transitions for premium UX
+  </Card>
+</CardGroup>
+
+### Backend
+
+<CardGroup cols={2}>
+  <Card title="FastAPI" icon="server">
+    High-performance Python API with async support and automatic OpenAPI docs
+  </Card>
+  <Card title="Render" icon="cloud">
+    Reliable backend hosting with automatic deployments and health monitoring
+  </Card>
+  <Card title="Modal" icon="cube">
+    Serverless containers for parallel processing at scale (100+ containers)
+  </Card>
+  <Card title="SlowAPI" icon="gauge">
+    Request rate limiting to prevent abuse and ensure fair usage
+  </Card>
+</CardGroup>
+
+### AI & Processing
+
+<CardGroup cols={2}>
+  <Card title="Groq" icon="brain">
+    Lightning-fast AI inference with LPU architecture (up to 750 tokens/sec)
+  </Card>
+  <Card title="Instructor" icon="code">
+    Structured output from LLMs using Pydantic models for type safety
+  </Card>
+  <Card title="GitPython" icon="git-alt">
+    Automated Git operations for cloning, branching, and committing
+  </Card>
+  <Card title="Pydantic" icon="check">
+    Data validation and settings management using Python type annotations
+  </Card>
+</CardGroup>
+
+### Database & Real-time
+
+<CardGroup cols={2}>
+  <Card title="Supabase" icon="database">
+    PostgreSQL database with real-time subscriptions for live updates
+  </Card>
+  <Card title="WebSocket" icon="plug">
+    Bi-directional communication for progress updates and notifications
+  </Card>
+</CardGroup>
+
+## Deployment Architecture
+
+### Production Infrastructure
+
+<Steps>
+  <Step title="Frontend: Vercel">
+    - **URL**: https://dependify.vercel.app
+    - **Region**: Global Edge Network
+    - **Build**: Automatic on `main` branch push
+    - **Environment**: Node.js 18+, Next.js 15
+  </Step>
+  
+  <Step title="Backend: Render">
+    - **Type**: Web Service
+    - **Region**: US East (Ohio)
+    - **Runtime**: Python 3.11
+    - **Auto-deploy**: Enabled from GitHub
+  </Step>
+  
+  <Step title="Serverless: Modal">
+    - **Analysis Container**: `groq-read` app
+    - **Refactoring Container**: `groq-write` app
+    - **Scaling**: 3-100 containers (auto-scale)
+    - **Timeout**: 5 minutes per file
+  </Step>
+  
+  <Step title="Database: Supabase">
+    - **Type**: PostgreSQL + Real-time
+    - **Region**: US East
+    - **Table**: `repo-updates` (status tracking)
+  </Step>
+</Steps>
+
+## Technology Choices
+
+### Why Next.js 15?
+
+**App Router** provides:
+- Server Components for reduced client-side JavaScript
+- Streaming SSR for faster initial page loads
+- Built-in API routes (though we use separate backend)
+- Excellent TypeScript support
+
+**Reference**: `frontend/package.json:27`
+
+### Why FastAPI?
+
+**High-performance async API** with:
+- Native async/await support for concurrent operations
+- Automatic OpenAPI/Swagger documentation
+- Type hints and Pydantic validation
+- WebSocket support for real-time updates
+
+**Reference**: `backend/server.py:1-475`
+
+### Why Modal?
+
+**Serverless containers** solve scaling challenges:
+- Process 100+ files in parallel automatically
+- Pay only for compute time used
+- No infrastructure management
+- Built-in secret management
+- Container warm pools for faster cold starts
+
+**Reference**: `backend/containers.py:14`, `backend/modal_write.py:21-32`
+
+### Why Groq?
+
+**Lightning-fast AI inference**:
+- **750 tokens/sec** on LPU (vs 30-50 on GPU)
+- Cost-effective for high-volume processing
+- Support for multiple Llama models
+- Reliable uptime and availability
+
+**Models**:
+- `llama-3.1-8b-instant` - Fast analysis (containers.py)
+- `llama-3.3-70b-versatile` - High-quality refactoring (modal_write.py)
+
+**Reference**: `backend/modal_write.py:103`, `backend/checker.py:97`
+
+### Why Supabase?
+
+**Real-time database** enables:
+- PostgreSQL with real-time subscriptions
+- Live progress updates without polling
+- Simple client libraries for Next.js
+- Built-in authentication (though we use GitHub OAuth)
+
+**Reference**: `backend/git_driver.py:9`, `frontend/package.json:17`
+
+## Security Considerations
+
+<AccordionGroup>
+  <Accordion title="API Authentication">
+    - JWT tokens with 7-day expiration
+    - GitHub OAuth for user authentication
+    - API secret key for token signing
+    - **Reference**: `backend/config.py:35`, `backend/auth.py`
+  </Accordion>
+  
+  <Accordion title="Rate Limiting">
+    - 10 requests/minute per IP (auth endpoints)
+    - 100 requests/hour per user (update endpoint)
+    - Prevents abuse and ensures fair usage
+    - **Reference**: `backend/server.py:37-39`, `config.py:38-39`
+  </Accordion>
+  
+  <Accordion title="CORS Policy">
+    - Restricted to production frontend + localhost
+    - Credentials allowed for auth cookies
+    - **Reference**: `backend/server.py:44-51`, `config.py:42-55`
+  </Accordion>
+  
+  <Accordion title="Secret Management">
+    - Modal secrets for API keys (isolated from code)
+    - Environment variables never committed
+    - GitHub token with minimal scopes (repo only)
+    - **Reference**: `backend/containers.py:18`, `modal_write.py:27-31`
+  </Accordion>
+</AccordionGroup>
+
+## Monitoring & Observability
+
+### Health Checks
+
+FastAPI provides a health endpoint:
+
+```python
+@app.get("/health", tags=["System"])
+async def health_check():
+    return {
+        "status": "healthy",
+        "version": "2.0.0",
+        "message": "Dependify API is running"
+    }
+```
+
+**Reference**: `backend/server.py:91-98`
+
+### Real-time Status Updates
+
+The `repo-updates` Supabase table tracks:
+- Current processing status (READING, WRITING, LOADING)
+- File-by-file progress
+- Code snippets for preview
+- Error messages if failures occur
+
+**Reference**: `backend/modal_write.py:145-161`, `checker.py:108-125`
+
+## Performance Characteristics
+
+<CardGroup cols={2}>
+  <Card title="Analysis Speed" icon="gauge-high">
+    ~5-10 files/second using llama-3.1-8b-instant with parallel containers
+  </Card>
+  <Card title="Refactoring Speed" icon="bolt">
+    ~2-3 files/second using llama-3.3-70b-versatile with 100 parallel containers
+  </Card>
+  <Card title="Repository Size" icon="database">
+    Successfully tested on repos with 100+ files (Microsoft Magma PR #63)
+  </Card>
+  <Card title="Cold Start Time" icon="clock">
+    ~3-5 seconds for Modal container warm-up, then instant for subsequent requests
+  </Card>
+</CardGroup>
+
+## Scalability
+
+The architecture scales horizontally:
+
+- **Frontend**: Vercel Edge Network handles unlimited traffic
+- **Backend**: Render can scale vertically, or add load balancer
+- **Modal Containers**: Auto-scales from 3 to 100+ containers based on load
+- **Supabase**: Managed PostgreSQL with connection pooling
+
+<Info>
+  The bottleneck is typically **Groq API rate limits** (not architecture limits). Consider implementing request queuing for very large repositories.
+</Info>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Frontend Architecture" icon="react" href="/architecture/frontend">
+    Dive deep into Next.js 15 implementation
+  </Card>
+  <Card title="Backend Architecture" icon="server" href="/architecture/backend">
+    Explore FastAPI and Modal integration
+  </Card>
+  <Card title="AI Processing" icon="brain" href="/architecture/ai-processing">
+    Learn about Groq AI and validation pipeline
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/auth/oauth">
+    View complete API documentation
+  </Card>
+</CardGroup>

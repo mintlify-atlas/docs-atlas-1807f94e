@@ -1,0 +1,746 @@
+---
+title: 'Best Practices'
+description: 'Tips and strategies for effective code modernization with Dependify'
+icon: 'star'
+---
+
+## Overview
+
+Dependify is a powerful tool for automating code modernization, but like any tool, it's most effective when used thoughtfully. This guide covers best practices, common pitfalls, and strategies for getting the most out of Dependify.
+
+<Tip>
+  **Golden Rule**: Dependify automates refactoring, not decision-making. Always review changes before merging, and use your judgment to determine what's appropriate for your project.
+</Tip>
+
+## When to Use Dependify
+
+### Good Use Cases
+
+<AccordionGroup>
+  <Accordion title="Modernizing Legacy Syntax">
+    **Perfect for:**
+    - Converting ES5 → ES6+ JavaScript
+    - Updating old React patterns (class components → hooks)
+    - Replacing deprecated API calls
+    - Modernizing Python 2 → Python 3 syntax
+    
+    **Example:**
+    ```javascript
+    // Old: ES5 with var and function
+    var fetchData = function(url) {
+      return fetch(url).then(function(r) { return r.json(); });
+    };
+    
+    // Modern: ES6+ with const and arrow functions
+    const fetchData = async (url) => {
+      const response = await fetch(url);
+      return response.json();
+    };
+    ```
+  </Accordion>
+
+  <Accordion title="Large-Scale Refactoring">
+    **Perfect for:**
+    - Updating 100+ files with consistent patterns
+    - Migrating entire codebase to new framework version
+    - Applying team style guidelines across the project
+    
+    **Why Dependify excels:**
+    - Parallel processing handles large codebases efficiently
+    - Consistent refactoring across all files
+    - Reduces human error in repetitive tasks
+  </Accordion>
+
+  <Accordion title="Onboarding New Team Members">
+    **Perfect for:**
+    - Demonstrating modern coding standards
+    - Providing examples of best practices
+    - Creating learning opportunities through PR reviews
+    
+    **Educational value:**
+    - Detailed AI explanations teach *why* changes were made
+    - File-by-file breakdown helps understand refactoring patterns
+    - Before/after comparisons show the impact of modernization
+  </Accordion>
+
+  <Accordion title="Technical Debt Cleanup">
+    **Perfect for:**
+    - Addressing accumulated outdated code
+    - Preparing for major framework upgrades
+    - Improving maintainability before feature work
+    
+    **Impact:**
+    - Reduces technical debt incrementally
+    - Makes future updates easier
+    - Improves code quality metrics
+  </Accordion>
+</AccordionGroup>
+
+### When NOT to Use Dependify
+
+<Warning>
+  Dependify is a refactoring tool, not a code generation or bug-fixing tool. Use it for syntax modernization, not for:
+</Warning>
+
+<AccordionGroup>
+  <Accordion title="❌ Business Logic Changes">
+    **Don't use for:**
+    - Implementing new features
+    - Changing algorithm behavior
+    - Modifying business rules
+    
+    **Why:**
+    Dependify preserves existing behavior. If you need to change *what* the code does (not just *how* it's written), manual development is required.
+  </Accordion>
+
+  <Accordion title="❌ Bug Fixes">
+    **Don't use for:**
+    - Fixing logical errors
+    - Addressing edge case handling
+    - Resolving security vulnerabilities
+    
+    **Why:**
+    Dependify modernizes syntax, not logic. Bugs require human analysis and targeted fixes.
+  </Accordion>
+
+  <Accordion title="❌ Performance Optimization">
+    **Don't use for:**
+    - Optimizing slow algorithms
+    - Reducing memory usage
+    - Improving database queries
+    
+    **Why:**
+    While modern syntax can improve readability, it doesn't necessarily improve performance. Optimization requires profiling and targeted changes.
+  </Accordion>
+
+  <Accordion title="❌ Critical Production Code (Without Testing)">
+    **Don't use for:**
+    - Production hotfixes
+    - Untested code paths
+    - Systems without comprehensive test coverage
+    
+    **Why:**
+    Always test modernized code thoroughly before deploying to production. Automated refactoring can introduce subtle bugs.
+  </Accordion>
+</AccordionGroup>
+
+## Testing Modernized Code
+
+### Testing Strategy
+
+Follow this testing workflow for all Dependify PRs:
+
+```
+1. Automated Tests
+   ↓
+2. Manual Testing
+   ↓
+3. Code Review
+   ↓
+4. Staging Deployment
+   ↓
+5. Production Deployment
+```
+
+### 1. Run Your Test Suite
+
+<AccordionGroup>
+  <Accordion title="Unit Tests">
+    ```bash
+    # Check out the PR branch
+    gh pr checkout <pr-number>
+    
+    # Run unit tests
+    npm test
+    # or
+    pytest
+    
+    # Check for test failures
+    # ✅ All tests pass → Good!
+    # ❌ Tests fail → Investigate changes
+    ```
+    
+    **What to check:**
+    - All existing tests pass
+    - No new test failures introduced
+    - Test coverage remains stable or improves
+  </Accordion>
+
+  <Accordion title="Integration Tests">
+    ```bash
+    # Run integration test suite
+    npm run test:integration
+    
+    # Check API endpoints, database interactions, etc.
+    ```
+    
+    **What to check:**
+    - External integrations still work
+    - API contracts are preserved
+    - Database queries produce same results
+  </Accordion>
+
+  <Accordion title="End-to-End Tests">
+    ```bash
+    # Run E2E tests (Cypress, Playwright, etc.)
+    npm run test:e2e
+    
+    # Verify critical user flows
+    ```
+    
+    **What to check:**
+    - User-facing features work correctly
+    - UI interactions are unaffected
+    - No visual regressions
+  </Accordion>
+</AccordionGroup>
+
+### 2. Manual Testing
+
+Even with comprehensive automated tests, manual testing catches edge cases:
+
+<AccordionGroup>
+  <Accordion title="Smoke Testing">
+    ```bash
+    # Start dev server
+    npm run dev
+    
+    # Test core functionality:
+    # 1. Navigate to key pages
+    # 2. Try main user actions
+    # 3. Verify data displays correctly
+    ```
+    
+    **Focus areas:**
+    - Core features work as expected
+    - No console errors or warnings
+    - Performance is similar to before
+  </Accordion>
+
+  <Accordion title="Regression Testing">
+    **Compare behavior before/after:**
+    1. Check out main branch: `git checkout main`
+    2. Test a feature and note its behavior
+    3. Check out PR branch: `gh pr checkout <pr-number>`
+    4. Test the same feature—should behave identically
+    
+    **Red flags:**
+    - Different output for same input
+    - New error messages or exceptions
+    - Changed UI behavior
+  </Accordion>
+</AccordionGroup>
+
+### 3. TypeScript/Linting Checks
+
+```bash
+# Type checking (TypeScript)
+npx tsc --noEmit
+
+# Linting
+npm run lint
+
+# Formatting
+npm run format:check
+```
+
+<Note>
+  Modern syntax may introduce linting warnings. Update your linter config if needed, but don't disable important rules.
+</Note>
+
+## Reviewing PRs from Dependify
+
+### Review Checklist
+
+Use this checklist for every Dependify PR:
+
+<AccordionGroup>
+  <Accordion title="1. Read the PR Description">
+    - [ ] Understand the overall scope (how many files changed)
+    - [ ] Review the summary of changes
+    - [ ] Check confidence scores (if available)
+    - [ ] Note any low-confidence files for extra scrutiny
+  </Accordion>
+
+  <Accordion title="2. Review File Changes">
+    - [ ] Check the "Files changed" tab
+    - [ ] Look for unexpected changes
+    - [ ] Verify syntax correctness
+    - [ ] Ensure code style matches your project
+  </Accordion>
+
+  <Accordion title="3. Focus on High-Risk Files">
+    - [ ] Core business logic
+    - [ ] Authentication/authorization code
+    - [ ] Payment processing
+    - [ ] Data validation
+  </Accordion>
+
+  <Accordion title="4. Test the Changes">
+    - [ ] Run automated tests
+    - [ ] Perform manual testing
+    - [ ] Check for breaking changes
+    - [ ] Verify dependency requirements
+  </Accordion>
+
+  <Accordion title="5. Approve or Request Changes">
+    - [ ] If satisfied: Approve and merge
+    - [ ] If issues found: Request changes with specific feedback
+    - [ ] If unclear: Comment to ask questions
+  </Accordion>
+</AccordionGroup>
+
+### What to Look for in Code Review
+
+<AccordionGroup>
+  <Accordion title="Syntax Correctness">
+    **Check for:**
+    - Valid ES6+ syntax (if targeting modern browsers)
+    - Correct TypeScript types
+    - Proper async/await usage
+    - No missing imports or exports
+    
+    **Example issue:**
+    ```javascript
+    // Problem: async added but no await
+    async function getData() {
+      return fetch(url).then(r => r.json()); // Should use await!
+    }
+    
+    // Correct:
+    async function getData() {
+      const response = await fetch(url);
+      return response.json();
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Behavioral Consistency">
+    **Check for:**
+    - Same function signatures (unless intentionally changed)
+    - Preserved return types
+    - Consistent error handling
+    - No new side effects
+    
+    **Example issue:**
+    ```javascript
+    // Before: Synchronous
+    function getConfig() {
+      return config;
+    }
+    
+    // After: Asynchronous (breaking change!)
+    async function getConfig() {
+      return config; // Now returns Promise<config>, not config!
+    }
+    
+    // Callers must now await:
+    const cfg = await getConfig(); // Required change!
+    ```
+  </Accordion>
+
+  <Accordion title="Code Style Alignment">
+    **Check for:**
+    - Matches your team's style guide
+    - Consistent with existing codebase patterns
+    - Appropriate for your target environment
+    
+    **Example:**
+    If your project uses function declarations, but Dependify introduces arrow functions, decide whether to accept the change or revert to your preferred style.
+  </Accordion>
+</AccordionGroup>
+
+## Incremental Modernization Strategies
+
+### Strategy 1: File-by-File Approach
+
+<AccordionGroup>
+  <Accordion title="How It Works">
+    Modernize one file or module at a time:
+    
+    ```
+    Week 1: Modernize utils/ folder
+    Week 2: Modernize components/ folder
+    Week 3: Modernize services/ folder
+    ```
+    
+    **Advantages:**
+    - Easier to review small PRs
+    - Lower risk of introducing bugs
+    - Can be done alongside feature work
+  </Accordion>
+
+  <Accordion title="Implementation">
+    ```bash
+    # Run Dependify on specific subdirectory
+    # (Feature not yet implemented, but you can manually select files after PR creation)
+    
+    # Alternative: Use PR review to only merge specific files
+    # 1. Create full Dependify PR
+    # 2. Manually cherry-pick files to merge
+    # 3. Close original PR, merge cherry-picked changes
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Strategy 2: Pattern-by-Pattern Approach
+
+<AccordionGroup>
+  <Accordion title="How It Works">
+    Modernize one code pattern at a time:
+    
+    ```
+    Phase 1: var → const/let only
+    Phase 2: Promise chains → async/await
+    Phase 3: Class components → functional components
+    ```
+    
+    **Advantages:**
+    - Focus review on one type of change
+    - Easier to identify pattern-specific issues
+    - Can create specialized tests for each pattern
+  </Accordion>
+
+  <Accordion title="Implementation">
+    Currently requires manual filtering of Dependify changes. Future versions may support pattern-specific refactoring.
+  </Accordion>
+</AccordionGroup>
+
+### Strategy 3: Risk-Based Approach
+
+<AccordionGroup>
+  <Accordion title="How It Works">
+    Prioritize by risk level:
+    
+    ```
+    Priority 1: Low-risk utility files
+    Priority 2: Medium-risk UI components
+    Priority 3: High-risk business logic
+    ```
+    
+    **Advantages:**
+    - Build confidence with easy wins first
+    - High-risk code gets most scrutiny
+    - Rollback is easier if issues arise
+  </Accordion>
+
+  <Accordion title="Risk Assessment">
+    **Low Risk:**
+    - Utility functions with comprehensive tests
+    - UI components with visual regression tests
+    - Well-isolated modules
+    
+    **High Risk:**
+    - Core business logic
+    - Payment/financial code
+    - Authentication/authorization
+    - Code without test coverage
+  </Accordion>
+</AccordionGroup>
+
+## What to Avoid
+
+### Anti-Pattern 1: Blind Merging
+
+<Warning>
+  **Never merge Dependify PRs without review, even if tests pass!**
+</Warning>
+
+**Why this is dangerous:**
+- Tests may not cover all code paths
+- Subtle behavioral changes can slip through
+- Breaking changes to public APIs
+
+**Better approach:**
+- Always review the "Files changed" tab
+- Understand what changed and why
+- Test critical functionality manually
+
+### Anti-Pattern 2: Modernizing Everything at Once
+
+<Warning>
+  **Don't try to modernize your entire codebase in one PR!**
+</Warning>
+
+**Problems:**
+- Massive PRs are hard to review
+- Merge conflicts with ongoing work
+- Difficult to isolate issues if bugs arise
+
+**Better approach:**
+- Break modernization into smaller PRs
+- Modernize one module or pattern at a time
+- Space out PRs to allow thorough review
+
+### Anti-Pattern 3: Ignoring Team Conventions
+
+<Warning>
+  **Don't accept changes that violate your team's style guide!**
+</Warning>
+
+**Example conflict:**
+```javascript
+// Your team prefers named exports
+export function fetchData() { ... }
+
+// Dependify introduces default export
+export default async function fetchData() { ... }
+```
+
+**Better approach:**
+- Configure linters to enforce team conventions
+- Manually adjust Dependify changes to match your style
+- Document style preferences for future reference
+
+### Anti-Pattern 4: Deploying Without Testing
+
+<Warning>
+  **Never deploy modernized code directly to production without staging!**
+</Warning>
+
+**Deployment checklist:**
+- [ ] All tests pass locally
+- [ ] Code reviewed by team member
+- [ ] Deployed to staging environment
+- [ ] Smoke tested in staging
+- [ ] Monitored for errors after production deployment
+
+## Environment-Specific Considerations
+
+### Browser Compatibility
+
+<AccordionGroup>
+  <Accordion title="Modern JavaScript (ES6+)">
+    **Check your target browsers:**
+    ```json
+    // package.json
+    {
+      "browserslist": [
+        "> 1%",
+        "last 2 versions",
+        "not dead"
+      ]
+    }
+    ```
+    
+    **Common issues:**
+    - IE11 doesn't support async/await without polyfills
+    - Optional chaining requires relatively modern browsers
+    - Ensure your Babel/TypeScript config transpiles appropriately
+  </Accordion>
+
+  <Accordion title="Node.js Version">
+    **Check your Node version:**
+    ```bash
+    node --version
+    # Ensure it supports modern syntax
+    ```
+    
+    **Requirements:**
+    - `async/await`: Node 7.6+
+    - Optional chaining (`?.`): Node 14+
+    - Nullish coalescing (`??`): Node 14+
+    - Top-level await: Node 14.8+ (with ES modules)
+  </Accordion>
+</AccordionGroup>
+
+### Framework Versions
+
+<AccordionGroup>
+  <Accordion title="React">
+    **Hooks require React 16.8+:**
+    ```bash
+    npm list react
+    # Ensure version >= 16.8.0
+    ```
+    
+    **Upgrading:**
+    ```bash
+    npm install react@latest react-dom@latest
+    ```
+  </Accordion>
+
+  <Accordion title="Python">
+    **Modern syntax requires Python 3.6+:**
+    ```bash
+    python --version
+    # Ensure Python 3.6+
+    ```
+    
+    **Python 3 features:**
+    - f-strings: Python 3.6+
+    - Type hints: Python 3.5+
+    - Assignment expressions (`:=`): Python 3.8+
+  </Accordion>
+</AccordionGroup>
+
+## Measuring Success
+
+### Metrics to Track
+
+<AccordionGroup>
+  <Accordion title="Code Quality Metrics">
+    **Before and after modernization:**
+    - **Linting warnings**: Should decrease
+    - **Code complexity**: Should decrease or stay same
+    - **Test coverage**: Should remain stable or improve
+    
+    ```bash
+    # Before
+    npm run lint # 150 warnings
+    
+    # After Dependify
+    npm run lint # 50 warnings (improvement!)
+    ```
+  </Accordion>
+
+  <Accordion title="Developer Productivity">
+    **Subjective improvements:**
+    - Faster code comprehension
+    - Easier onboarding for new developers
+    - Fewer bugs related to outdated patterns
+    
+    **Survey your team:**
+    - Is the code easier to read?
+    - Do you feel more confident making changes?
+    - Has technical debt decreased?
+  </Accordion>
+
+  <Accordion title="Maintenance Burden">
+    **Long-term benefits:**
+    - Easier framework upgrades
+    - Less time spent on refactoring
+    - Reduced technical debt discussions
+  </Accordion>
+</AccordionGroup>
+
+## Common Scenarios
+
+### Scenario 1: Contributing to Open Source
+
+```
+Goal: Modernize an open-source project
+
+1. Fork the repository on GitHub
+2. Run Dependify on your fork
+3. Review the PR carefully (maintainers will scrutinize it)
+4. Run the project's test suite
+5. Submit the Dependify PR to the original repo
+6. Be responsive to maintainer feedback
+
+Tips:
+- Check project contribution guidelines
+- Ensure modernization aligns with project goals
+- Be patient—open source maintainers are volunteers
+```
+
+### Scenario 2: Migrating Legacy Codebase
+
+```
+Goal: Modernize a 5-year-old JavaScript project
+
+1. Audit current codebase:
+   - Identify most outdated patterns
+   - Assess test coverage
+   - List breaking change risks
+
+2. Create modernization plan:
+   - Phase 1: Low-risk files (utils, helpers)
+   - Phase 2: Medium-risk files (components)
+   - Phase 3: High-risk files (core logic)
+
+3. Run Dependify incrementally:
+   - Create separate PRs for each phase
+   - Review and test thoroughly
+   - Monitor production after each merge
+
+4. Document learnings:
+   - What worked well?
+   - What issues arose?
+   - How can we prevent similar issues?
+```
+
+### Scenario 3: Pre-Framework Upgrade
+
+```
+Goal: Prepare for React 19 upgrade
+
+1. Modernize existing code first:
+   - Convert class components to functional components
+   - Update deprecated lifecycle methods
+   - Use hooks instead of mixins/HOCs
+
+2. Run Dependify to automate conversions
+
+3. Test thoroughly in current React version
+
+4. Upgrade React version
+
+5. Address any remaining issues
+
+Result: Smoother framework upgrade with fewer breaking changes
+```
+
+## Getting Help
+
+### When to Ask for Help
+
+<AccordionGroup>
+  <Accordion title="Unclear Changes">
+    If you don't understand why Dependify made a change:
+    - Comment on the specific line in the PR
+    - Check the AI explanation in the changelog
+    - Review related documentation (MDN, framework docs)
+  </Accordion>
+
+  <Accordion title="Test Failures">
+    If tests fail after modernization:
+    - Identify which tests are failing
+    - Check if the failure is behavior-related or syntax-related
+    - Manually compare before/after behavior
+    - Open an issue if you suspect a Dependify bug
+  </Accordion>
+
+  <Accordion title="Breaking Changes">
+    If modernization introduces breaking changes:
+    - Document the breaking change
+    - Update call sites to match new behavior
+    - Consider whether the breaking change is acceptable
+  </Accordion>
+</AccordionGroup>
+
+### Support Resources
+
+- **Documentation**: [dependify.vercel.app/docs](https://dependify.vercel.app)
+- **GitHub Issues**: [github.com/kshitizz36/Dependify2.0/issues](https://github.com/kshitizz36/Dependify2.0/issues)
+- **Community**: Check GitHub Discussions for Q&A
+
+## Summary: Quick Reference
+
+### ✅ Do This
+
+- Review all Dependify PRs before merging
+- Test modernized code thoroughly
+- Modernize incrementally (small PRs)
+- Focus on high-confidence changes first
+- Document team conventions and style preferences
+- Use Dependify for syntax modernization
+
+### ❌ Avoid This
+
+- Blindly merging without review
+- Modernizing everything at once
+- Deploying to production without staging
+- Using Dependify for business logic changes
+- Ignoring test failures
+- Skipping manual testing
+
+<Tip>
+  **Remember**: Dependify is a productivity tool, not a replacement for code review and testing. Use it to accelerate refactoring, but always apply human judgment to ensure quality.
+</Tip>
+
+## Related Documentation
+
+- [Repository Workflows](/guides/repository-workflows) - How Dependify handles repos
+- [Fork Handling](/guides/fork-handling) - Understanding forks and cleanup
+- [Understanding Changelogs](/guides/understanding-changelogs) - Reading AI-generated PRs

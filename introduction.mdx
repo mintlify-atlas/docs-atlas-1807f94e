@@ -1,0 +1,129 @@
+---
+title: Introduction
+description: AI-powered code modernization platform that eliminates technical debt and reduces developer burnout
+---
+
+# Code smarter, not harder
+
+Dependify is an AI-powered developer tool that automates code maintenance, modernizes legacy syntax, and creates detailed pull requests with AI-explained changelogs. Stop wrestling with outdated code patterns and let Dependify bring your projects into the future—automatically.
+
+<Note>
+  Dependify 2.0 is fully deployed and production-ready at [dependify.vercel.app](https://dependify.vercel.app)
+</Note>
+
+## The problem: drowning in technical debt
+
+The numbers don't lie:
+
+- **41% of developers** spend most of their time dealing with technical debt
+- Developers dedicate **16.4 hours per week** to maintenance tasks like debugging and refactoring
+- This constant struggle with complex, outdated code is a major contributor to **developer burnout**
+
+Sound familiar? You're not alone.
+
+## The solution: automated modernization
+
+Dependify leverages cutting-edge AI to automate the tedious aspects of code maintenance. By intelligently scanning your codebase, refactoring outdated syntax, and generating comprehensive AI-explained changelogs, Dependify transforms your maintenance backlog into a streamlined, automated workflow.
+
+**The result?** Improved code quality, reduced technical debt, and developers who can focus on what they do best: innovate and build great software.
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/getting-started/quickstart">
+    Get started in 5 minutes with GitHub OAuth
+  </Card>
+  <Card title="How it works" icon="diagram-project" href="/how-it-works">
+    Learn about the 6-step automated workflow
+  </Card>
+  <Card title="API reference" icon="code" href="/api/auth/oauth">
+    Integrate Dependify into your development pipeline
+  </Card>
+  <Card title="GitHub integration" icon="github" href="/getting-started/authentication">
+    Understand fork management and PR creation
+  </Card>
+</CardGroup>
+
+## What's new in 2.0
+
+### GitButler-style PR descriptions
+
+AI-generated changelogs with detailed explanations for every file, showing:
+
+- Clear before/after comparisons
+- Why each change was made
+- Impact on code quality
+- Confidence scores for each modification
+
+### Smart repository detection
+
+Dependify automatically detects repository ownership:
+
+- **Your repos**: Creates PR directly in your repository
+- **Others' repos**: Creates a temporary fork and submits PR from your fork
+- Works seamlessly with both public and private repositories
+
+### Production-ready deployment
+
+- **Frontend**: Deployed on Vercel with edge optimization
+- **Backend**: FastAPI on Render with Modal serverless containers
+- **Authentication**: GitHub OAuth with 7-day session management
+- **Real-time updates**: Live progress tracking via Supabase
+
+### Parallel processing at scale
+
+- Process **100+ files simultaneously** with Modal containers
+- Each file analyzed independently for maximum speed
+- Warm container pools ensure sub-second response times
+
+## Proven track record
+
+<CardGroup cols={2}>
+  <Card title="Microsoft's Magma" icon="check">
+    Successfully modernized and merged PR #63
+  </Card>
+  <Card title="Production-tested" icon="shield-check">
+    Handles repositories of any size with parallel processing
+  </Card>
+  <Card title="Multi-language" icon="code">
+    JavaScript, TypeScript, Python, and more
+  </Card>
+  <Card title="High confidence" icon="star">
+    AI validation with syntax checking and confidence scoring
+  </Card>
+</CardGroup>
+
+## Tech stack highlights
+
+Dependify 2.0 is built with cutting-edge technologies for production reliability:
+
+- **[FastAPI](https://fastapi.tiangolo.com/)**: High-performance async Python API
+- **[Modal](https://modal.com/)**: Serverless containers for parallel processing
+- **[Groq](https://groq.com/)**: Lightning-fast AI inference with `llama-3.3-70b-versatile`
+- **[Next.js 15](https://nextjs.org/)**: Modern React framework with server components
+- **[Supabase](https://supabase.com/)**: Real-time PostgreSQL for live progress updates
+- **[GitHub API](https://docs.github.com/en/rest)**: Automated fork, branch, and PR management
+
+## Get started now
+
+Ready to reclaim your time and supercharge your codebase?
+
+1. Visit [dependify.vercel.app](https://dependify.vercel.app)
+2. Click "Continue with GitHub" to authenticate
+3. Paste any GitHub repository URL
+4. Watch Dependify modernize your code automatically
+
+<Note>
+  No credit card required. Works with any public repository and authenticated private repositories.
+</Note>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart guide" icon="play" href="/getting-started/quickstart">
+    Start modernizing code in minutes
+  </Card>
+  <Card title="How it works" icon="book" href="/how-it-works">
+    Deep dive into the automated workflow
+  </Card>
+</CardGroup>

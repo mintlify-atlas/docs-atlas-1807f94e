@@ -1,0 +1,331 @@
+---
+title: 'Local Development Setup'
+description: 'Set up Dependify for local development with frontend, backend, and Modal containers'
+icon: 'code'
+---
+
+This guide will help you set up Dependify locally for development. The system consists of three main components: a Next.js frontend, a FastAPI backend, and Modal serverless containers for parallel processing.
+
+## Prerequisites
+
+Before you begin, ensure you have the following installed:
+
+<Steps>
+  <Step title="Node.js 18+ and pnpm">
+    Install Node.js from [nodejs.org](https://nodejs.org/) and pnpm package manager:
+    ```bash
+    npm install -g pnpm
+    ```
+  </Step>
+
+  <Step title="Python 3.11+">
+    Install Python 3.11 or higher from [python.org](https://python.org/)
+  </Step>
+
+  <Step title="Git">
+    Ensure Git is installed for version control and repository operations
+  </Step>
+
+  <Step title="API Keys">
+    You'll need accounts and API keys for:
+    - **Groq**: AI inference ([console.groq.com](https://console.groq.com/))
+    - **Supabase**: Real-time database ([supabase.com](https://supabase.com/))
+    - **Modal**: Serverless containers ([modal.com](https://modal.com/))
+    - **GitHub**: OAuth app and personal access token
+  </Step>
+</Steps>
+
+## Clone the Repository
+
+First, clone the Dependify repository:
+
+```bash
+git clone https://github.com/kshitizz36/Dependify2.0.git
+cd Dependify2.0
+```
+
+## Backend Setup
+
+<Steps>
+  <Step title="Navigate to backend directory">
+    ```bash
+    cd backend
+    ```
+  </Step>
+
+  <Step title="Create virtual environment">
+    <CodeGroup>
+      ```bash macOS/Linux
+      python -m venv venv
+      source venv/bin/activate
+      ```
+
+      ```bash Windows
+      python -m venv venv
+      venv\Scripts\activate
+      ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Install dependencies">
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+    Key dependencies include:
+    - `fastapi` - High-performance API framework
+    - `modal` - Serverless container orchestration
+    - `groq` - AI inference SDK
+    - `gitpython` - Git operations
+    - `supabase` - Real-time database client
+  </Step>
+
+  <Step title="Configure environment variables">
+    Create a `.env` file in the `backend/` directory:
+
+    ```bash
+    # AI & Processing
+    GROQ_API_KEY=your_groq_api_key
+
+    # Database
+    SUPABASE_URL=your_supabase_url
+    SUPABASE_KEY=your_supabase_service_key
+
+    # GitHub Authentication & API
+    GITHUB_CLIENT_ID=your_github_oauth_client_id
+    GITHUB_CLIENT_SECRET=your_github_oauth_client_secret
+    GITHUB_TOKEN=your_github_classic_pat  # Requires 'repo' scope
+
+    # Security
+    API_SECRET_KEY=your_random_secret_key_here
+
+    # Frontend CORS
+    FRONTEND_URL=http://localhost:3000
+
+    # Server Configuration (optional)
+    PORT=5001
+    RATE_LIMIT_PER_MINUTE=10
+    RATE_LIMIT_PER_HOUR=100
+    ```
+
+    <Note>
+      See the [Environment Variables](/development/environment-variables) page for detailed information on each variable.
+    </Note>
+  </Step>
+
+  <Step title="Set up Modal secrets">
+    Install Modal CLI and authenticate:
+
+    ```bash
+    pip install modal
+    modal setup
+    ```
+
+    Create Modal secrets for the containers:
+
+    ```bash
+    # Create each secret interactively
+    modal secret create GROQ_API_KEY
+    modal secret create SUPABASE_URL
+    modal secret create SUPABASE_KEY
+    ```
+
+    <Warning>
+      Modal secrets are required for the serverless containers to access Groq and Supabase. Without these, file processing will fail.
+    </Warning>
+  </Step>
+
+  <Step title="Run the backend server">
+    ```bash
+    python server.py
+    ```
+
+    The server will start on `http://localhost:5001` (or the port specified in your `.env` file).
+
+    You should see:
+    ```
+    ============================================================
+    Starting Dependify API v2.0.0
+    ============================================================
+    ✅ Configuration validated successfully
+    CORS allowed origins: ['http://localhost:3000']
+    Rate limit: 100 requests/hour
+    ============================================================
+    ```
+  </Step>
+</Steps>
+
+## Frontend Setup
+
+<Steps>
+  <Step title="Navigate to frontend directory">
+    Open a new terminal window:
+    ```bash
+    cd frontend
+    ```
+  </Step>
+
+  <Step title="Install dependencies">
+    ```bash
+    pnpm install
+    ```
+
+    This will install all required packages including Next.js 15, React 19, Supabase client, and UI libraries.
+  </Step>
+
+  <Step title="Configure environment variables">
+    Create a `.env.local` file in the `frontend/` directory:
+
+    ```bash
+    NEXT_PUBLIC_GITHUB_CLIENT_ID=your_github_oauth_client_id
+    NEXT_PUBLIC_API_URL=http://localhost:5001
+    NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+    NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+    ```
+
+    <Note>
+      The `NEXT_PUBLIC_` prefix makes these variables available to the browser. The `GITHUB_CLIENT_ID` must match the one used in your backend.
+    </Note>
+  </Step>
+
+  <Step title="Run the development server">
+    ```bash
+    pnpm dev
+    ```
+
+    The frontend will start on `http://localhost:3000` with Turbopack for fast refresh.
+  </Step>
+</Steps>
+
+## Deploy Modal Containers
+
+Dependify uses Modal for parallel file processing. You need to deploy two container functions:
+
+<Steps>
+  <Step title="Deploy analysis container">
+    From the `backend/` directory:
+
+    ```bash
+    modal deploy containers.py
+    ```
+
+    This deploys the `groq-read` app that analyzes files for outdated syntax.
+  </Step>
+
+  <Step title="Deploy refactoring container">
+    ```bash
+    modal deploy modal_write.py
+    ```
+
+    This deploys the `groq-write` app that refactors code using LLMs.
+  </Step>
+
+  <Step title="Verify deployment">
+    Check your Modal dashboard at [modal.com/apps](https://modal.com/apps) to see your deployed functions.
+
+    You should see:
+    - `groq-read` with the `run_script` function
+    - `groq-write` with the `process_file` function
+  </Step>
+</Steps>
+
+<Warning>
+  Modal containers must be deployed even for local development. The backend calls these remote functions to process files in parallel.
+</Warning>
+
+## Testing the Setup
+
+<Steps>
+  <Step title="Access the application">
+    Open your browser and navigate to `http://localhost:3000`
+  </Step>
+
+  <Step title="Test GitHub OAuth">
+    Click "Continue with GitHub" to test authentication flow. You'll be redirected to GitHub for authorization.
+
+    <Note>
+      Make sure your GitHub OAuth app's callback URL is set to `http://localhost:3000/auth/callback` in your [GitHub OAuth settings](https://github.com/settings/developers).
+    </Note>
+  </Step>
+
+  <Step title="Test repository processing">
+    After authentication:
+    1. Paste a GitHub repository URL (try a small repo first)
+    2. Click "Analyze Repository"
+    3. Watch the real-time progress updates via Supabase
+    4. Verify that files are processed and a PR is created
+  </Step>
+
+  <Step title="Check the API health">
+    Visit `http://localhost:5001/health` to verify backend is running:
+
+    ```json
+    {
+      "status": "healthy",
+      "version": "2.0.0",
+      "message": "Dependify API is running"
+    }
+    ```
+  </Step>
+
+  <Step title="Explore API documentation">
+    FastAPI provides interactive docs at:
+    - Swagger UI: `http://localhost:5001/docs`
+    - ReDoc: `http://localhost:5001/redoc`
+  </Step>
+</Steps>
+
+## Common Issues
+
+<AccordionGroup>
+  <Accordion title="Modal secrets not loading">
+    If you see "GROQ_API_KEY not found" errors:
+
+    1. Verify secrets are created: `modal secret list`
+    2. Redeploy containers after creating secrets
+    3. Check that secret names exactly match: `GROQ_API_KEY`, `SUPABASE_URL`, `SUPABASE_KEY`
+  </Accordion>
+
+  <Accordion title="CORS errors in frontend">
+    If you see CORS errors in browser console:
+
+    1. Verify `FRONTEND_URL` in backend `.env` is `http://localhost:3000`
+    2. Restart the backend server after changing CORS settings
+    3. Clear browser cache and reload
+  </Accordion>
+
+  <Accordion title="GitHub OAuth fails">
+    If GitHub authentication doesn't work:
+
+    1. Verify OAuth app callback URL is `http://localhost:3000/auth/callback`
+    2. Check `GITHUB_CLIENT_ID` matches in both frontend and backend
+    3. Ensure `GITHUB_CLIENT_SECRET` is set in backend `.env`
+    4. Test OAuth flow using the redirect URL in browser
+  </Accordion>
+
+  <Accordion title="Modal containers timeout">
+    If file processing times out:
+
+    1. Check Modal dashboard for error logs
+    2. Verify Groq API key has sufficient quota
+    3. Try processing a smaller repository first
+    4. Increase timeout in `modal_write.py` (default is 300 seconds)
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Environment Variables" icon="key" href="/development/environment-variables">
+    Learn about all configuration options
+  </Card>
+  <Card title="Code Structure" icon="folder-tree" href="/development/code-structure">
+    Understand the codebase organization
+  </Card>
+  <Card title="Contributing" icon="code-pull-request" href="/development/contributing">
+    Start contributing to Dependify
+  </Card>
+  <Card title="Deployment" icon="rocket" href="/development/deployment">
+    Deploy to production
+  </Card>
+</CardGroup>

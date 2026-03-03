@@ -1,0 +1,165 @@
+---
+title: 'Quick Start'
+description: 'Get from zero to your first automated PR in under 5 minutes'
+icon: 'rocket'
+---
+
+## Get Started in 5 Minutes
+
+Dependify automates code modernization using AI. This guide will take you from zero to your first automated pull request in under 5 minutes.
+
+<Steps>
+  <Step title="Visit Dependify">
+    Navigate to [dependify.vercel.app](https://dependify.vercel.app) in your browser.
+  </Step>
+
+  <Step title="Connect with GitHub">
+    Click the **"Continue with GitHub"** button on the homepage.
+
+    <Note>
+      You'll be redirected to GitHub's OAuth page to authorize Dependify.
+    </Note>
+
+    **What permissions does Dependify need?**
+    - Read access to your public repositories
+    - Write access to create forks and branches
+    - Permission to create pull requests
+
+    <Info>
+      Your session will remain active for 7 days. After that, you'll need to re-authenticate.
+    </Info>
+  </Step>
+
+  <Step title="Authorize the Application">
+    On GitHub's authorization page:
+    1. Review the requested permissions
+    2. Click **"Authorize"** to grant access
+    3. You'll be redirected back to Dependify automatically
+
+    Once authenticated, you'll see your GitHub username in the dashboard.
+  </Step>
+
+  <Step title="Enter Repository URL">
+    In the Dependify dashboard:
+    1. Find the repository input field
+    2. Paste any GitHub repository URL (format: `https://github.com/owner/repo`)
+    3. Click **"Analyze Repository"**
+
+    <Info>
+      **You can modernize:**
+      - Your own repositories (public or private)
+      - Any public repository on GitHub
+      - Forks are created automatically when needed
+    </Info>
+
+    **Examples:**
+    ```bash
+    https://github.com/your-username/your-repo
+    https://github.com/microsoft/magma
+    https://github.com/vercel/next.js
+    ```
+  </Step>
+
+  <Step title="Watch the Magic Happen">
+    Dependify will now:
+    
+    **Phase 1: Analysis** (30-60 seconds)
+    - Clone the repository
+    - Scan all files for outdated syntax patterns
+    - Identify modernization opportunities
+
+    **Phase 2: Refactoring** (1-3 minutes)
+    - Process files in parallel using Modal containers
+    - Apply AI-powered code modernization
+    - Validate syntax correctness
+    - Generate detailed changelog
+
+    **Phase 3: PR Creation** (15-30 seconds)
+    - Create a new branch with unique identifier
+    - Push all changes to GitHub
+    - Submit pull request with AI-explained changelog
+
+    <Note>
+      Watch the real-time progress updates in the dashboard. You'll see exactly which files are being processed.
+    </Note>
+  </Step>
+
+  <Step title="Review Your Pull Request">
+    When processing completes:
+    1. Click the **PR link** displayed in the dashboard
+    2. Review the AI-generated changelog
+    3. Inspect the "Files changed" tab
+    4. Run your test suite to verify compatibility
+    5. Merge when ready!
+
+    <Warning>
+      Always review changes before merging. While Dependify aims for high accuracy, AI-generated code should be verified.
+    </Warning>
+  </Step>
+</Steps>
+
+## What Happens Next?
+
+### For Your Own Repositories
+Dependify creates a branch directly in your repository and submits a PR. No fork needed.
+
+### For Others' Repositories
+Dependify creates a **temporary staging fork** under your account, then submits a PR from your fork to the original repository.
+
+<Info>
+  The fork is created solely for proposing changes. You can safely delete it after the PR is merged or closed.
+</Info>
+
+## Typical Processing Times
+
+| Repository Size | Analysis | Refactoring | Total Time |
+|----------------|----------|-------------|------------|
+| Small (< 10 files) | 15s | 30s | ~1 min |
+| Medium (10-50 files) | 30s | 2 min | ~3 min |
+| Large (50+ files) | 60s | 5 min | ~6 min |
+
+<Note>
+  Processing is parallelized across Modal containers, so larger repositories benefit from significant speedup.
+</Note>
+
+## What Gets Modernized?
+
+Dependify currently supports:
+
+- **JavaScript/TypeScript**: `var` → `const/let`, class components → hooks, callbacks → async/await
+- **Python**: Legacy syntax → modern Python 3.11+ patterns
+- **General**: Outdated APIs, deprecated functions, code style improvements
+
+## Rate Limits
+
+<Warning>
+  **API Rate Limits:**
+  - 10 authentication requests per minute
+  - 100 repository modernizations per hour
+  
+  These limits help ensure fair usage and system stability.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication Details" icon="key" href="/getting-started/authentication">
+    Learn about GitHub OAuth, session management, and permissions
+  </Card>
+  <Card title="First Modernization" icon="wand-magic-sparkles" href="/getting-started/first-modernization">
+    Detailed walkthrough of your first repository modernization
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/modernization/update-repo">
+    Integrate Dependify into your CI/CD pipeline
+  </Card>
+  <Card title="Development Guide" icon="hammer" href="/development">
+    Run Dependify locally or contribute to the project
+  </Card>
+</CardGroup>
+
+## Need Help?
+
+If you encounter any issues:
+- Check the [Authentication Guide](/getting-started/authentication) for OAuth problems
+- Review our [API Reference](/api/auth/oauth) for integration questions
+- Visit the [GitHub repository](https://github.com/kshitizz36/Dependify2.0) to report bugs

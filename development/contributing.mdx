@@ -1,0 +1,452 @@
+---
+title: 'Contributing Guide'
+description: 'Learn how to contribute to Dependify and improve AI-powered code modernization'
+icon: 'code-pull-request'
+---
+
+Thank you for your interest in contributing to Dependify! This guide will help you get started with contributing code, documentation, and ideas to improve the project.
+
+## Ways to Contribute
+
+<CardGroup cols={2}>
+  <Card title="Report Bugs" icon="bug">
+    Found an issue? Report it on [GitHub Issues](https://github.com/kshitizz36/Dependify2.0/issues)
+  </Card>
+  
+  <Card title="Suggest Features" icon="lightbulb">
+    Have an idea? Open a feature request issue
+  </Card>
+  
+  <Card title="Improve Documentation" icon="book">
+    Help others by improving guides and documentation
+  </Card>
+  
+  <Card title="Submit Code" icon="code">
+    Fix bugs, add features, or improve performance
+  </Card>
+</CardGroup>
+
+## Getting Started
+
+<Steps>
+  <Step title="Fork the repository">
+    Fork [Dependify2.0](https://github.com/kshitizz36/Dependify2.0) to your GitHub account.
+  </Step>
+
+  <Step title="Clone your fork">
+    ```bash
+    git clone https://github.com/YOUR_USERNAME/Dependify2.0.git
+    cd Dependify2.0
+    ```
+  </Step>
+
+  <Step title="Set up development environment">
+    Follow the [Local Development Setup](/development/setup) guide to configure your environment.
+  </Step>
+
+  <Step title="Create a feature branch">
+    ```bash
+    git checkout -b feature/your-feature-name
+    ```
+    
+    Use descriptive branch names:
+    - `feature/add-python-support`
+    - `fix/cors-issue`
+    - `docs/improve-setup-guide`
+  </Step>
+</Steps>
+
+## Code Style Guidelines
+
+### Python (Backend)
+
+We follow PEP 8 with some modifications:
+
+<CodeGroup>
+```python Good Example
+# Use descriptive variable names
+def create_pull_request(branch_name: str, repo_owner: str, 
+                        repo_name: str) -> Optional[str]:
+    """
+    Create a pull request from fork to original repository.
+    
+    Args:
+        branch_name: Name of the branch with changes
+        repo_owner: Original repository owner
+        repo_name: Repository name
+        
+    Returns:
+        Pull request URL or None if failed
+    """
+    if not Config.GITHUB_TOKEN:
+        raise ValueError("GITHUB_TOKEN not configured")
+    
+    # Clear comments explaining logic
+    pr_title = f"🤖 Automated code modernization by Dependify"
+    
+    return pr_url
+```
+
+```python Bad Example
+# Avoid unclear names and missing docs
+def create_pr(bn, ro, rn):
+    if not Config.GITHUB_TOKEN:
+        raise ValueError("GITHUB_TOKEN not configured")
+    t = f"🤖 Automated code modernization by Dependify"
+    return url
+```
+</CodeGroup>
+
+**Key points:**
+- Use type hints for function parameters and return values
+- Write docstrings for all public functions
+- Maximum line length: 100 characters
+- Use 4 spaces for indentation
+- Import order: standard library, third-party, local imports
+
+### TypeScript/JavaScript (Frontend)
+
+We follow the Next.js and React best practices:
+
+<CodeGroup>
+```typescript Good Example
+// Use TypeScript interfaces for props
+interface RepositoryPageProps {
+  repositoryUrl: string;
+  onAnalysisComplete: (results: AnalysisResults) => void;
+}
+
+export function RepositoryPage({ 
+  repositoryUrl, 
+  onAnalysisComplete 
+}: RepositoryPageProps) {
+  const [isLoading, setIsLoading] = useState(false);
+  
+  // Clear function names and logic
+  const handleAnalyze = async () => {
+    setIsLoading(true);
+    try {
+      const results = await analyzeRepository(repositoryUrl);
+      onAnalysisComplete(results);
+    } catch (error) {
+      console.error('Analysis failed:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  return (
+    <div className="repository-page">
+      {/* Component JSX */}
+    </div>
+  );
+}
+```
+
+```typescript Bad Example
+// Avoid missing types and unclear logic
+export function RepositoryPage({ url, onComplete }: any) {
+  const [loading, setLoading] = useState(false);
+  
+  const analyze = async () => {
+    setLoading(true);
+    const r = await analyzeRepository(url);
+    onComplete(r);
+    setLoading(false);
+  };
+  
+  return <div>{/* ... */}</div>;
+}
+```
+</CodeGroup>
+
+**Key points:**
+- Use TypeScript for all new code
+- Define interfaces for component props
+- Use functional components with hooks
+- Follow React naming conventions (PascalCase for components)
+- Use meaningful variable names
+- Handle loading and error states properly
+
+## Commit Message Guidelines
+
+Write clear, descriptive commit messages:
+
+<CodeGroup>
+```bash Good Examples
+git commit -m "feat: Add Python syntax detection support"
+git commit -m "fix: Resolve CORS issue with Vercel deployment"
+git commit -m "docs: Update environment variables guide"
+git commit -m "refactor: Improve Modal container error handling"
+git commit -m "test: Add unit tests for git_driver module"
+```
+
+```bash Bad Examples
+git commit -m "fixed stuff"
+git commit -m "update"
+git commit -m "wip"
+```
+</CodeGroup>
+
+**Format:**
+```
+<type>: <short description>
+
+<optional detailed description>
+
+<optional footer>
+```
+
+**Types:**
+- `feat`: New feature
+- `fix`: Bug fix
+- `docs`: Documentation changes
+- `refactor`: Code refactoring without functional changes
+- `test`: Adding or updating tests
+- `chore`: Maintenance tasks, dependencies
+
+## Testing Requirements
+
+While Dependify is currently in active development and doesn't have comprehensive tests yet, we encourage contributors to:
+
+### Manual Testing Checklist
+
+Before submitting a PR, test the following:
+
+<Steps>
+  <Step title="Backend API">
+    - [ ] `/health` endpoint returns 200
+    - [ ] `/update` endpoint processes repositories
+    - [ ] GitHub OAuth flow completes successfully
+    - [ ] Rate limiting works as expected
+  </Step>
+
+  <Step title="Frontend">
+    - [ ] GitHub login redirects correctly
+    - [ ] Repository input validates URLs
+    - [ ] Real-time updates display via Supabase
+    - [ ] PR link opens correctly after processing
+  </Step>
+
+  <Step title="Modal Containers">
+    - [ ] `containers.py` analyzes files correctly
+    - [ ] `modal_write.py` refactors code as expected
+    - [ ] Secrets load properly in containers
+    - [ ] Parallel processing handles 10+ files
+  </Step>
+
+  <Step title="Integration">
+    - [ ] End-to-end flow: login → analyze → refactor → PR
+    - [ ] Test with both owned repos and forks
+    - [ ] Verify PR descriptions format correctly
+  </Step>
+</Steps>
+
+### Future Testing Goals
+
+We welcome contributions that add:
+- Unit tests for backend modules (pytest)
+- Integration tests for API endpoints
+- Frontend component tests (Jest, React Testing Library)
+- E2E tests (Playwright or Cypress)
+
+## Pull Request Process
+
+<Steps>
+  <Step title="Ensure code quality">
+    - [ ] Code follows style guidelines
+    - [ ] All functions have docstrings/comments
+    - [ ] No console.log statements in production code
+    - [ ] Type hints added for Python code
+    - [ ] TypeScript types defined for React components
+  </Step>
+
+  <Step title="Update documentation">
+    If your changes affect usage:
+    - [ ] Update relevant documentation pages
+    - [ ] Add examples for new features
+    - [ ] Update environment variables guide if needed
+  </Step>
+
+  <Step title="Test your changes">
+    - [ ] Test locally with the development setup
+    - [ ] Verify changes work with production-like configuration
+    - [ ] Test edge cases and error scenarios
+  </Step>
+
+  <Step title="Commit and push">
+    ```bash
+    git add .
+    git commit -m "feat: your feature description"
+    git push origin feature/your-feature-name
+    ```
+  </Step>
+
+  <Step title="Create pull request">
+    1. Go to your fork on GitHub
+    2. Click "Compare & pull request"
+    3. Fill out the PR template:
+       - **Title**: Clear, descriptive summary
+       - **Description**: What, why, and how
+       - **Testing**: How you tested the changes
+       - **Screenshots**: For UI changes
+  </Step>
+
+  <Step title="Code review">
+    - Respond to review comments promptly
+    - Make requested changes
+    - Push updates to the same branch
+    - Request re-review when ready
+  </Step>
+
+  <Step title="Merge">
+    Once approved, maintainers will merge your PR. Thank you for contributing!
+  </Step>
+</Steps>
+
+## PR Template
+
+Use this template for your pull requests:
+
+```markdown
+## Description
+
+Briefly describe what this PR does and why.
+
+## Type of Change
+
+- [ ] Bug fix
+- [ ] New feature
+- [ ] Documentation update
+- [ ] Performance improvement
+- [ ] Code refactoring
+
+## Changes Made
+
+- Change 1
+- Change 2
+- Change 3
+
+## Testing
+
+Describe how you tested these changes:
+
+- [ ] Tested locally
+- [ ] Tested with production configuration
+- [ ] Added/updated tests
+
+## Screenshots (if applicable)
+
+Add screenshots for UI changes.
+
+## Checklist
+
+- [ ] Code follows project style guidelines
+- [ ] Documentation updated
+- [ ] All tests pass
+- [ ] No breaking changes (or documented if unavoidable)
+```
+
+## Areas Needing Help
+
+We especially welcome contributions in these areas:
+
+<CardGroup cols={2}>
+  <Card title="Multi-Language Support" icon="language">
+    Add support for Python, Go, Rust, Java modernization beyond JavaScript/TypeScript
+  </Card>
+  
+  <Card title="Testing Infrastructure" icon="vial">
+    Help build comprehensive unit and integration tests
+  </Card>
+  
+  <Card title="UI/UX Improvements" icon="palette">
+    Enhance the dashboard, add animations, improve accessibility
+  </Card>
+  
+  <Card title="Performance Optimization" icon="gauge-high">
+    Optimize Modal container performance, reduce processing time
+  </Card>
+  
+  <Card title="Documentation" icon="book">
+    Add guides, tutorials, and API documentation
+  </Card>
+  
+  <Card title="Error Handling" icon="shield-exclamation">
+    Improve error messages and recovery mechanisms
+  </Card>
+</CardGroup>
+
+## Communication
+
+<CardGroup cols={2}>
+  <Card title="GitHub Issues" icon="github">
+    Report bugs and request features
+  </Card>
+  
+  <Card title="GitHub Discussions" icon="comments">
+    Ask questions and share ideas
+  </Card>
+  
+  <Card title="Pull Request Comments" icon="code-pull-request">
+    Discuss specific code changes
+  </Card>
+  
+  <Card title="Email" icon="envelope">
+    Contact [@kshitizz36](https://github.com/kshitizz36) for sensitive matters
+  </Card>
+</CardGroup>
+
+## Code of Conduct
+
+We follow these principles:
+
+<Steps>
+  <Step title="Be respectful">
+    Treat all contributors with respect and kindness.
+  </Step>
+  
+  <Step title="Be constructive">
+    Provide helpful feedback and suggestions.
+  </Step>
+  
+  <Step title="Be patient">
+    Understand that maintainers and contributors volunteer their time.
+  </Step>
+  
+  <Step title="Be collaborative">
+    Work together to build better solutions.
+  </Step>
+</Steps>
+
+## License
+
+By contributing to Dependify, you agree that your contributions will be licensed under the MIT License.
+
+## Recognition
+
+All contributors will be:
+- Listed in the project's contributors page
+- Mentioned in release notes for significant contributions
+- Thanked in the README
+
+<Note>
+  We appreciate every contribution, no matter how small. Thank you for helping improve Dependify!
+</Note>
+
+## Resources
+
+<CardGroup cols={2}>
+  <Card title="Setup Guide" icon="code" href="/development/setup">
+    Set up your development environment
+  </Card>
+  <Card title="Code Structure" icon="folder-tree" href="/development/code-structure">
+    Understand the codebase organization
+  </Card>
+  <Card title="Environment Variables" icon="key" href="/development/environment-variables">
+    Configure your local environment
+  </Card>
+  <Card title="GitHub Issues" icon="github" href="https://github.com/kshitizz36/Dependify2.0/issues">
+    View open issues
+  </Card>
+</CardGroup>

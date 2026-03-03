@@ -1,0 +1,150 @@
+---
+title: 'GitHub OAuth'
+api: 'POST /auth/github'
+description: 'Exchange GitHub OAuth code for access token'
+---
+
+## Overview
+
+This endpoint exchanges a GitHub OAuth authorization code for a Dependify access token. After a user authorizes your application on GitHub, call this endpoint with the returned code to authenticate the user and receive a JWT token for subsequent API requests.
+
+## Authentication
+
+No authentication required for this endpoint. However, you must provide a valid GitHub OAuth code.
+
+## Rate Limiting
+
+<Warning>
+  This endpoint is rate-limited to **10 requests per minute** per IP address.
+</Warning>
+
+## Request Body
+
+<ParamField body="code" type="string" required>
+  GitHub OAuth authorization code received from the OAuth callback
+</ParamField>
+
+## Response
+
+<ResponseField name="access_token" type="string">
+  JWT access token for authenticating with Dependify API
+</ResponseField>
+
+<ResponseField name="token_type" type="string">
+  Token type, always returns `"bearer"`
+</ResponseField>
+
+<ResponseField name="user" type="object">
+  GitHub user information
+  
+  <Expandable title="user properties">
+    <ResponseField name="id" type="integer">
+      GitHub user ID
+    </ResponseField>
+    
+    <ResponseField name="login" type="string">
+      GitHub username
+    </ResponseField>
+    
+    <ResponseField name="name" type="string">
+      User's display name
+    </ResponseField>
+    
+    <ResponseField name="email" type="string">
+      User's email address (if public)
+    </ResponseField>
+    
+    <ResponseField name="avatar_url" type="string">
+      URL to user's GitHub avatar image
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -X POST https://api.dependify.dev/auth/github \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "gho_abc123xyz789"
+  }'
+```
+
+## Example Response
+
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer",
+  "user": {
+    "id": 12345678,
+    "login": "octocat",
+    "name": "The Octocat",
+    "email": "octocat@github.com",
+    "avatar_url": "https://avatars.githubusercontent.com/u/12345678"
+  }
+}
+```
+
+## Error Responses
+
+<ResponseField name="status_code" type="integer">
+  HTTP status code indicating the error type
+</ResponseField>
+
+<ResponseField name="detail" type="string">
+  Human-readable error message
+</ResponseField>
+
+### Common Errors
+
+<Expandable title="400 Bad Request">
+  ```json
+  {
+    "detail": "GitHub OAuth error: bad_verification_code"
+  }
+  ```
+  
+  The provided OAuth code is invalid or has expired.
+</Expandable>
+
+<Expandable title="429 Too Many Requests">
+  ```json
+  {
+    "detail": "Rate limit exceeded: 10 per 1 minute"
+  }
+  ```
+  
+  You've exceeded the rate limit. Wait before retrying.
+</Expandable>
+
+<Expandable title="500 Internal Server Error">
+  ```json
+  {
+    "detail": "GitHub OAuth not configured"
+  }
+  ```
+  
+  Server configuration issue. Contact support if this persists.
+</Expandable>
+
+## Token Expiration
+
+JWT tokens issued by this endpoint expire after **24 hours**. Store the token securely and include it in the `Authorization` header for authenticated requests:
+
+```
+Authorization: Bearer <access_token>
+```
+
+## OAuth Flow
+
+1. Redirect user to GitHub OAuth authorization URL:
+   ```
+   https://github.com/login/oauth/authorize?client_id=YOUR_CLIENT_ID&scope=repo,user
+   ```
+
+2. User authorizes the application and is redirected back with a `code` parameter
+
+3. Exchange the code using this endpoint to receive an access token
+
+4. Use the access token for subsequent API requests

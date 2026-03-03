@@ -1,0 +1,380 @@
+---
+title: 'WebSocket Events'
+api: 'WebSocket /ws'
+description: 'Real-time updates during repository processing'
+---
+
+## Overview
+
+Connect to the WebSocket endpoint to receive real-time progress updates while your repository is being analyzed and modernized. This is useful for showing live status to users during long-running operations.
+
+## Connection
+
+**WebSocket URL:**
+```
+ws://api.dependify.dev/ws
+wss://api.dependify.dev/ws (secure)
+```
+
+**Query Parameters:**
+
+<ParamField query="client_id" type="string" optional>
+  Optional client identifier for managing multiple connections. Defaults to `"default"` if not provided.
+</ParamField>
+
+## Authentication
+
+<Info>
+  WebSocket connections currently do not require authentication. In production, you should implement token-based authentication.
+</Info>
+
+## Connection Flow
+
+1. **Connect**: Open WebSocket connection to `/ws?client_id=your-id`
+2. **Receive Events**: Listen for JSON messages with progress updates
+3. **Send Messages**: Optionally send JSON messages to broadcast to other clients
+4. **Disconnect**: Close connection when processing is complete
+
+## Event Types
+
+The server broadcasts JSON messages with progress updates during repository processing:
+
+<ResponseField name="type" type="string">
+  Event type identifier (e.g., `"progress"`, `"status"`, `"complete"`, `"error"`)
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable message describing the current operation
+</ResponseField>
+
+<ResponseField name="stage" type="string">
+  Current processing stage
+  
+  Possible values:
+  - `"analyzing"` - Scanning repository files
+  - `"refactoring"` - AI-powered code modernization
+  - `"validating"` - Syntax and quality validation
+  - `"committing"` - Git operations
+  - `"creating_pr"` - Pull request creation
+  - `"complete"` - Processing finished
+</ResponseField>
+
+<ResponseField name="progress" type="number">
+  Progress percentage (0-100)
+</ResponseField>
+
+<ResponseField name="files_processed" type="integer">
+  Number of files processed so far
+</ResponseField>
+
+<ResponseField name="files_total" type="integer">
+  Total number of files to process
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  Additional stage-specific data
+</ResponseField>
+
+## Example Messages
+
+### Analysis Started
+
+```json
+{
+  "type": "status",
+  "message": "Analyzing repository files...",
+  "stage": "analyzing",
+  "progress": 10
+}
+```
+
+### File Processing Progress
+
+```json
+{
+  "type": "progress",
+  "message": "Refactoring file 5 of 15",
+  "stage": "refactoring",
+  "progress": 45,
+  "files_processed": 5,
+  "files_total": 15,
+  "data": {
+    "current_file": "src/utils/helpers.js",
+    "confidence_score": 92
+  }
+}
+```
+
+### Processing Complete
+
+```json
+{
+  "type": "complete",
+  "message": "Pull request created successfully",
+  "stage": "complete",
+  "progress": 100,
+  "data": {
+    "pull_request_url": "https://github.com/owner/repo/pull/123",
+    "files_updated": 8,
+    "branch": "dependify/modernize-2026-03-03"
+  }
+}
+```
+
+### Error Event
+
+```json
+{
+  "type": "error",
+  "message": "Failed to analyze repository",
+  "stage": "analyzing",
+  "progress": 15,
+  "data": {
+    "error": "Repository not found",
+    "code": "REPO_NOT_FOUND"
+  }
+}
+```
+
+## Client Implementation
+
+### JavaScript/Browser
+
+```javascript
+const connectWebSocket = (clientId = 'browser-client') => {
+  const ws = new WebSocket(`wss://api.dependify.dev/ws?client_id=${clientId}`);
+  
+  ws.onopen = () => {
+    console.log('WebSocket connected');
+  };
+  
+  ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    
+    switch(data.type) {
+      case 'progress':
+        updateProgressBar(data.progress);
+        updateStatusMessage(data.message);
+        break;
+        
+      case 'complete':
+        console.log('Processing complete!', data.data);
+        showSuccessNotification(data.data.pull_request_url);
+        break;
+        
+      case 'error':
+        console.error('Processing error:', data.message);
+        showErrorNotification(data.message);
+        break;
+        
+      default:
+        console.log('Status update:', data.message);
+    }
+  };
+  
+  ws.onerror = (error) => {
+    console.error('WebSocket error:', error);
+  };
+  
+  ws.onclose = () => {
+    console.log('WebSocket disconnected');
+  };
+  
+  return ws;
+};
+
+// Usage
+const socket = connectWebSocket('my-client-123');
+
+// Send a custom message (will be broadcast to all clients)
+socket.send(JSON.stringify({
+  type: 'custom',
+  message: 'Hello from client'
+}));
+
+// Close connection when done
+socket.close();
+```
+
+### Python
+
+```python
+import asyncio
+import websockets
+import json
+
+async def listen_updates(client_id="python-client"):
+    uri = f"ws://api.dependify.dev/ws?client_id={client_id}"
+    
+    async with websockets.connect(uri) as websocket:
+        print(f"Connected as {client_id}")
+        
+        try:
+            async for message in websocket:
+                data = json.loads(message)
+                
+                if data['type'] == 'progress':
+                    print(f"Progress: {data['progress']}% - {data['message']}")
+                    
+                elif data['type'] == 'complete':
+                    print(f"Complete! PR: {data['data']['pull_request_url']}")
+                    break
+                    
+                elif data['type'] == 'error':
+                    print(f"Error: {data['message']}")
+                    break
+                    
+        except websockets.exceptions.ConnectionClosed:
+            print("Connection closed")
+
+# Run the client
+asyncio.run(listen_updates())
+```
+
+### Node.js
+
+```javascript
+const WebSocket = require('ws');
+
+const connectWebSocket = (clientId = 'node-client') => {
+  const ws = new WebSocket(`ws://api.dependify.dev/ws?client_id=${clientId}`);
+  
+  ws.on('open', () => {
+    console.log('Connected to Dependify WebSocket');
+  });
+  
+  ws.on('message', (data) => {
+    const event = JSON.parse(data);
+    
+    console.log(`[${event.type}] ${event.message}`);
+    
+    if (event.type === 'progress') {
+      console.log(`Progress: ${event.progress}%`);
+    }
+    
+    if (event.type === 'complete') {
+      console.log('Pull request:', event.data.pull_request_url);
+      ws.close();
+    }
+  });
+  
+  ws.on('error', (error) => {
+    console.error('WebSocket error:', error);
+  });
+  
+  ws.on('close', () => {
+    console.log('Disconnected from WebSocket');
+  });
+  
+  return ws;
+};
+
+const socket = connectWebSocket('my-server-app');
+```
+
+## Broadcasting Messages
+
+Clients can send JSON messages that will be broadcast to all connected clients:
+
+```javascript
+const message = {
+  type: 'custom_notification',
+  user: 'octocat',
+  action: 'started_processing',
+  repository: 'hello-world'
+};
+
+websocket.send(JSON.stringify(message));
+```
+
+All connected clients will receive this message.
+
+## Connection Management
+
+### Multiple Connections
+
+Each `client_id` maintains a separate connection. Use unique IDs to manage multiple simultaneous operations:
+
+```javascript
+const repo1Socket = new WebSocket('wss://api.dependify.dev/ws?client_id=repo-1');
+const repo2Socket = new WebSocket('wss://api.dependify.dev/ws?client_id=repo-2');
+```
+
+### Reconnection Strategy
+
+```javascript
+const connectWithRetry = (clientId, maxRetries = 5) => {
+  let retries = 0;
+  
+  const connect = () => {
+    const ws = new WebSocket(`wss://api.dependify.dev/ws?client_id=${clientId}`);
+    
+    ws.onclose = () => {
+      if (retries < maxRetries) {
+        retries++;
+        console.log(`Reconnecting... (${retries}/${maxRetries})`);
+        setTimeout(connect, 1000 * retries);
+      }
+    };
+    
+    return ws;
+  };
+  
+  return connect();
+};
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Handle Connection Failures">
+    Always implement reconnection logic and handle connection failures gracefully:
+    
+    ```javascript
+    ws.onerror = (error) => {
+      console.error('Connection failed:', error);
+      // Show user a notification
+      // Attempt to reconnect
+    };
+    ```
+  </Accordion>
+  
+  <Accordion title="Close Connections Properly">
+    Close WebSocket connections when no longer needed to free up server resources:
+    
+    ```javascript
+    // When processing completes
+    if (data.type === 'complete' || data.type === 'error') {
+      ws.close();
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Validate Incoming Messages">
+    Always validate and sanitize incoming messages before using them:
+    
+    ```javascript
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (!data.type || !data.message) {
+          console.warn('Invalid message format');
+          return;
+        }
+        // Process valid message
+      } catch (e) {
+        console.error('Failed to parse message:', e);
+      }
+    };
+    ```
+  </Accordion>
+  
+  <Accordion title="Use Unique Client IDs">
+    Generate unique client IDs to avoid conflicts:
+    
+    ```javascript
+    const clientId = `user-${userId}-${Date.now()}`;
+    const ws = new WebSocket(`wss://api.dependify.dev/ws?client_id=${clientId}`);
+    ```
+  </Accordion>
+</AccordionGroup>

@@ -1,0 +1,203 @@
+---
+title: 'Status & Health'
+api: 'GET /health'
+description: 'Check API health and status'
+---
+
+## Overview
+
+These endpoints provide system information and health checks for the Dependify API.
+
+## API Information
+
+### Get API Info
+
+<CodeGroup>
+```bash GET /
+curl https://api.dependify.dev/
+```
+</CodeGroup>
+
+**Response:**
+
+<ResponseField name="name" type="string">
+  API name: `"Dependify API"`
+</ResponseField>
+
+<ResponseField name="version" type="string">
+  Current API version (e.g., `"2.0.0"`)
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  API status: `"running"`
+</ResponseField>
+
+<ResponseField name="docs" type="string">
+  Path to interactive API documentation: `"/docs"`
+</ResponseField>
+
+<ResponseField name="health" type="string">
+  Path to health check endpoint: `"/health"`
+</ResponseField>
+
+**Example Response:**
+
+```json
+{
+  "name": "Dependify API",
+  "version": "2.0.0",
+  "status": "running",
+  "docs": "/docs",
+  "health": "/health"
+}
+```
+
+---
+
+## Health Check
+
+### Check API Health
+
+<CodeGroup>
+```bash GET /health
+curl https://api.dependify.dev/health
+```
+</CodeGroup>
+
+Verifies that the API server is running and responding to requests. Use this endpoint for monitoring and health checks in production environments.
+
+**Response:**
+
+<ResponseField name="status" type="string">
+  Health status: `"healthy"` or `"unhealthy"`
+</ResponseField>
+
+<ResponseField name="version" type="string">
+  Current API version
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable status message
+</ResponseField>
+
+**Example Response:**
+
+```json
+{
+  "status": "healthy",
+  "version": "2.0.0",
+  "message": "Dependify API is running"
+}
+```
+
+---
+
+## Use Cases
+
+### Monitoring Setup
+
+Use the health check endpoint in your monitoring tools:
+
+**Docker Healthcheck:**
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:5001/health || exit 1
+```
+
+**Kubernetes Probe:**
+```yaml
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 5001
+  initialDelaySeconds: 10
+  periodSeconds: 30
+  
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 5001
+  initialDelaySeconds: 5
+  periodSeconds: 10
+```
+
+### Version Checking
+
+Check the API version to ensure compatibility:
+
+```javascript
+const checkApiVersion = async () => {
+  const response = await fetch('https://api.dependify.dev/');
+  const info = await response.json();
+  
+  console.log(`API Version: ${info.version}`);
+  
+  if (info.version !== expectedVersion) {
+    console.warn('API version mismatch - update your client');
+  }
+};
+```
+
+### Service Discovery
+
+Use the root endpoint to discover API documentation:
+
+```javascript
+const discoverApi = async () => {
+  const response = await fetch('https://api.dependify.dev/');
+  const info = await response.json();
+  
+  // Open interactive documentation
+  window.open(`https://api.dependify.dev${info.docs}`, '_blank');
+};
+```
+
+---
+
+## Interactive Documentation
+
+Dependify provides interactive API documentation powered by FastAPI:
+
+### Swagger UI
+
+Access interactive Swagger documentation at:
+```
+https://api.dependify.dev/docs
+```
+
+Features:
+- Try API endpoints directly in the browser
+- View request/response schemas
+- Test authentication flows
+- Download OpenAPI specification
+
+### ReDoc
+
+Access alternative ReDoc documentation at:
+```
+https://api.dependify.dev/redoc
+```
+
+Features:
+- Clean, readable documentation format
+- Search functionality
+- Code samples in multiple languages
+- Printable documentation
+
+---
+
+## Status Codes
+
+Both endpoints return standard HTTP status codes:
+
+<ResponseField name="200" type="OK">
+  API is healthy and responding normally
+</ResponseField>
+
+<ResponseField name="503" type="Service Unavailable">
+  API is starting up or experiencing issues
+</ResponseField>
+
+<ResponseField name="500" type="Internal Server Error">
+  API encountered an unexpected error
+</ResponseField>

@@ -1,0 +1,393 @@
+---
+title: 'AI Refactoring'
+description: 'Groq AI-powered code refactoring with validation and confidence scoring'
+icon: 'wand-magic-sparkles'
+---
+
+## Overview
+
+Dependify uses **Groq's ultra-fast LLM inference** to refactor outdated code patterns. The system processes files in parallel using Modal containers with up to **100 concurrent workers**, applying modern syntax while maintaining code functionality.
+
+## Modal Parallel Processing
+
+### Container Configuration
+
+```python modal_write.py:23-32
+@app.function(
+    timeout=300,              # 5 minutes per file
+    max_containers=100,       # Process up to 100 files in parallel
+    min_containers=3,         # Keep 3 containers warm
+    secrets=[
+        modal.Secret.from_name("GROQ_API_KEY"),
+        modal.Secret.from_name("SUPABASE_URL"),
+        modal.Secret.from_name("SUPABASE_KEY"),
+    ],
+)
+def process_file(job):
+    # Refactor a single file using LLM
+```
+
+<Info>
+**Parallelization:** Up to 100 files can be refactored simultaneously, dramatically reducing processing time for large repositories.
+</Info>
+
+### Async Processing
+
+Files are processed asynchronously using Modal's `.map.aio()` method:
+
+```python server.py:193-207
+with write_app.run():
+    print(f"Starting parallel processing of {len(job_list)} files...")
+    
+    refactored_jobs = []
+    i = 0
+    
+    # Process files in parallel
+    async for output in process_file.map.aio(job_list):
+        i += 1
+        if output and output.get("refactored_code"):
+            refactored_jobs.append({
+                "path": output["file_path"],
+                "new_content": output["refactored_code"],
+                "confidence_score": output.get("confidence_score", 0)
+            })
+            print(f"✅ Completed {i}/{len(job_list)}: {file_path}")
+```
+
+## AI Models Used
+
+### Primary Model: llama-3.3-70b-versatile
+
+For code refactoring, Dependify uses Groq's **llama-3.3-70b-versatile** model:
+
+```python modal_write.py:102-115
+job_report = client.chat.completions.create(
+    model="llama-3.3-70b-versatile",
+    messages=[
+        {
+            "role": "system",
+            "content": "You are a helpful assistant that analyzes code and returns a JSON object with the refactored code and the comments that come with it. Your goal is to identify outdated syntax in code and suggest changes to update it to the latest syntax."
+        },
+        {
+            "role": "user",
+            "content": user_prompt
+        }
+    ],
+    response_model=JobReport,
+)
+```
+
+<Note>
+**Why 70B model?** The larger model provides:
+- Better understanding of complex code patterns
+- More accurate refactoring suggestions
+- Higher quality code generation
+- Better handling of edge cases
+</Note>
+
+### Model Comparison
+
+<Tabs>
+  <Tab title="Analysis">
+    **llama-3.1-8b-instant**
+    - Used for: Pattern detection
+    - Speed: ~500 tokens/second
+    - Purpose: Fast identification of outdated code
+    - Cost: Low
+  </Tab>
+  
+  <Tab title="Refactoring">
+    **llama-3.3-70b-versatile**
+    - Used for: Code refactoring
+    - Speed: ~200 tokens/second
+    - Purpose: High-quality code generation
+    - Cost: Medium
+  </Tab>
+</Tabs>
+
+## Prompt Structure
+
+### Refactoring Prompt
+
+The system uses a detailed prompt to guide the LLM:
+
+```python modal_write.py:89-98
+user_prompt = (
+    "Analyze the following code and determine if the syntax is out of date. "
+    "If it is out of date, specify what changes need to be made in the following JSON format:\n\n"
+    "{\n"
+    '  "refactored_code": "A rewrite of the file that is more up to date, using the native language (i.e. if the file is a NextJS file, rewrite the NextJS file using Javascript/Typescript with the updated API changes). The file should be a complete file, not just a partial updated code segment.",\n'
+    '  "refactored_code_comments": "Comments and explanations for your code changes. Be as descriptive, informative, and technical as possible."\n'
+    "}\n\n"
+    f"File: {file_path}\n\n"
+    f"Code:\n{code_content}"
+)
+```
+
+### Structured Output
+
+Responses are parsed using Pydantic models with instructor:
+
+```python modal_write.py:67-73
+class JobReport(BaseModel):
+    refactored_code: str
+    refactored_code_comments: str
+
+# Initialize with instructor for structured output
+client = Groq(api_key=GROQ_API_KEY)
+client = instructor.from_groq(client, mode=instructor.Mode.TOOLS)
+```
+
+<Info>
+**Instructor library** ensures LLM responses match the expected schema, preventing parsing errors.
+</Info>
+
+## Validation System
+
+### Multi-Language Syntax Validation
+
+Refactored code is validated before being applied:
+
+```python modal_write.py:118-125
+filename = file_path.split("/")[-1]
+language = SyntaxValidator.detect_language(file_path)
+
+validation_result, confidence_score = validate_and_score(
+    file_path,
+    old_code,
+    job_report.refactored_code
+)
+```
+
+### Supported Languages
+
+```python validators.py:46-60
+extension_map = {
+    '.py': 'python',
+    '.js': 'javascript',
+    '.jsx': 'javascript',
+    '.ts': 'typescript',
+    '.tsx': 'typescript',
+    '.go': 'go',
+    '.rs': 'rust',
+    '.java': 'java',
+}
+```
+
+<Tabs>
+  <Tab title="Python">
+    ```python validators.py:62-91
+    def validate_python(code: str) -> ValidationResult:
+        try:
+            ast.parse(code)  # Parse with Python AST
+            return ValidationResult(
+                is_valid=True,
+                language='python'
+            )
+        except SyntaxError as e:
+            return ValidationResult(
+                is_valid=False,
+                language='python',
+                error_message=str(e),
+                line_number=e.lineno
+            )
+    ```
+  </Tab>
+  
+  <Tab title="JavaScript/TypeScript">
+    ```python validators.py:100-142
+    def validate_javascript(code: str) -> ValidationResult:
+        # Create temporary file
+        with tempfile.NamedTemporaryFile(suffix='.js', delete=False) as f:
+            f.write(code)
+            temp_path = f.name
+        
+        # Validate with Node.js
+        result = subprocess.run(
+            ['node', '--check', temp_path],
+            capture_output=True,
+            timeout=5
+        )
+        
+        if result.returncode == 0:
+            return ValidationResult(is_valid=True, language='javascript')
+        else:
+            return ValidationResult(
+                is_valid=False,
+                language='javascript',
+                error_message=result.stderr
+            )
+    ```
+  </Tab>
+  
+  <Tab title="Other Languages">
+    - **Go**: `gofmt -e` for syntax checking
+    - **Rust**: `rustc --parse-only` for validation
+    - **Java**: `javac` for compilation checks
+    
+    Falls back to basic validation if language tools aren't installed.
+  </Tab>
+</Tabs>
+
+## Confidence Scoring
+
+### Scoring Formula
+
+Each refactored file receives a confidence score (0-100):
+
+```python validators.py:470-498
+def calculate_score(
+    old_code: str,
+    new_code: str,
+    validation_result: ValidationResult
+) -> ConfidenceScore:
+    # Syntax validation: 60 points (pass/fail)
+    syntax_score = 60 if validation_result.is_valid else 0
+    
+    # Complexity factor: 40 points (based on change size)
+    complexity_factor = calculate_complexity(old_code, new_code)
+    complexity_score = int(complexity_factor * 40)
+    
+    # Total score
+    total_score = syntax_score + complexity_score
+    
+    return ConfidenceScore(
+        score=total_score,
+        syntax_valid=validation_result.is_valid,
+        complexity_factor=complexity_factor
+    )
+```
+
+### Score Breakdown
+
+<CardGroup cols={3}>
+  <Card title="High Confidence" icon="circle-check" color="#10b981">
+    **80-100 points**
+    - Valid syntax ✅
+    - Minimal changes
+    - Safe to merge
+  </Card>
+  
+  <Card title="Medium Confidence" icon="circle-exclamation" color="#f59e0b">
+    **60-79 points**
+    - Valid syntax ✅
+    - Moderate changes
+    - Review recommended
+  </Card>
+  
+  <Card title="Needs Review" icon="triangle-exclamation" color="#ef4444">
+    **0-59 points**
+    - Syntax issues ⚠️
+    - Major changes
+    - Thorough testing required
+  </Card>
+</CardGroup>
+
+### Complexity Calculation
+
+```python validators.py:439-467
+def calculate_complexity(old_code: str, new_code: str) -> float:
+    old_lines = old_code.split('\n')
+    new_lines = new_code.split('\n')
+    
+    # Calculate metrics
+    lines_changed = abs(len(new_lines) - len(old_lines))
+    total_lines = max(len(old_lines), len(new_lines))
+    
+    if total_lines == 0:
+        change_ratio = 0.0
+    else:
+        change_ratio = lines_changed / total_lines
+    
+    # Inverse complexity: smaller changes = higher confidence
+    # 0% change = 1.0, 100% change = 0.0
+    complexity_factor = max(0.0, 1.0 - change_ratio)
+    
+    return complexity_factor
+```
+
+## Real-Time Progress Updates
+
+### Status Broadcasting
+
+```python modal_write.py:145-161
+validation_emoji = "✅" if validation_result.is_valid else "⚠️"
+print(f"{validation_emoji} {filename}: Processing complete")
+
+# Update Supabase with status
+data = {
+    "status": "WRITING",
+    "message": f"✍️ Updating {filename}",
+    "code": job_report.refactored_code
+}
+
+supabase_client.table("repo-updates").insert(data).execute()
+```
+
+<Info>
+Progress updates include emoji indicators for quick visual feedback:
+- 🟢 High confidence (80+)
+- 🟡 Medium confidence (60-79)
+- 🔴 Needs review (below 60)
+</Info>
+
+## Error Handling
+
+### Retry Logic
+
+```python modal_write.py:180-186
+try:
+    job_report = client.chat.completions.create(...)
+except (ValidationError, json.JSONDecodeError) as parse_error:
+    print(f"Error parsing LLM response for {file_path}: {parse_error}")
+    return None
+except Exception as e:
+    print(f"Error analyzing {file_path}: {e}")
+    return None
+```
+
+<Warning>
+**Failed files are skipped** and don't halt the entire process. The system continues processing remaining files.
+</Warning>
+
+## Output Format
+
+Each successfully refactored file returns:
+
+```python modal_write.py:163-179
+return {
+    "file_path": file_path,
+    "original_code": old_code,
+    "validation": {
+        "is_valid": validation_result.is_valid,
+        "language": validation_result.language,
+        "error": validation_result.error_message
+    },
+    "confidence_score": confidence_score.score,
+    "confidence_factors": confidence_score.factors,
+    "changelog": {
+        "lines_added": file_change.lines_added,
+        "lines_removed": file_change.lines_removed,
+        "key_changes": file_change.key_changes
+    },
+    **job_report.model_dump()
+}
+```
+
+## Performance Metrics
+
+- **Throughput**: 100 files in parallel
+- **Average time per file**: 10-30 seconds
+- **Groq inference speed**: ~200 tokens/second
+- **Validation overhead**: < 1 second per file
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="PR Generation" icon="code-pull-request" href="/features/pr-generation">
+    See how refactored code becomes pull requests
+  </Card>
+  <Card title="Real-Time Tracking" icon="tower-broadcast" href="/features/real-time-tracking">
+    Monitor refactoring progress live
+  </Card>
+</CardGroup>

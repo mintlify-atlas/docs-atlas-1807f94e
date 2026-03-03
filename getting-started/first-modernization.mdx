@@ -1,0 +1,620 @@
+---
+title: 'First Modernization'
+description: 'A detailed walkthrough of modernizing your first repository with Dependify'
+icon: 'wand-magic-sparkles'
+---
+
+## Introduction
+
+This guide walks you through every step of modernizing a repository, from analysis to PR creation. You'll understand what happens behind the scenes and how to interpret the results.
+
+<Note>
+  Before starting, make sure you've completed the [Quick Start](/getting-started/quickstart) and are authenticated via GitHub OAuth.
+</Note>
+
+## Step 1: Selecting a Repository
+
+Choose a repository to modernize. For your first time, we recommend:
+
+### Good First Candidates
+- **Small to medium size** (10-50 files)
+- **Active development** (so you can see the impact)
+- **Non-production** (for safety during learning)
+- **JavaScript/TypeScript or Python** (best support)
+
+### Repository Types
+
+<Tabs>
+  <Tab title="Your Own Repository">
+    Dependify creates a branch directly in your repository.
+
+    **Advantages:**
+    - No fork needed
+    - Direct PR creation
+    - Cleaner workflow
+
+    **Requirements:**
+    - You must have push access
+    - Repository can be public or private
+
+    ```bash
+    # Example
+    https://github.com/your-username/your-project
+    ```
+  </Tab>
+
+  <Tab title="Someone Else's Repository">
+    Dependify creates a temporary staging fork under your account.
+
+    **How it works:**
+    1. Fork is created automatically
+    2. Changes are pushed to your fork
+    3. PR is submitted from your fork to original repo
+    4. You can delete the fork after merging
+
+    **Requirements:**
+    - Repository must be public
+    - You don't need any special permissions
+
+    ```bash
+    # Example
+    https://github.com/microsoft/magma
+    ```
+  </Tab>
+</Tabs>
+
+### Paste the URL
+
+In the Dependify dashboard:
+1. Find the repository input field
+2. Paste the full GitHub URL: `https://github.com/owner/repo`
+3. Click **"Analyze Repository"**
+
+<Warning>
+  Make sure the URL is in the correct format. SSH URLs (`git@github.com:...`) are not supported in the web interface.
+</Warning>
+
+## Step 2: Analysis Phase
+
+### What Happens
+
+Dependify runs the analysis phase using Modal containers:
+
+```python
+# From server.py:170-178
+with container_app.run():
+    job_list = run_script.remote(payload.repository)
+```
+
+**The analyzer:**
+1. **Clones** the repository to a temporary staging area
+2. **Scans** all files for supported languages (JS, TS, Python)
+3. **Detects** outdated syntax patterns using regex and AST parsing
+4. **Creates** a job list of files that need modernization
+
+### What You'll See
+
+<Steps>
+  <Step title="Repository Cloning">
+    ```
+    ⏳ Cloning repository...
+    ✅ Repository cloned successfully
+    ```
+
+    Dependify creates a staging directory and clones your repository.
+  </Step>
+
+  <Step title="File Scanning">
+    ```
+    🔍 Scanning files for outdated syntax...
+    📝 Found 23 files to analyze
+    ```
+
+    The analyzer identifies all code files and checks them for modernization opportunities.
+  </Step>
+
+  <Step title="Pattern Detection">
+    ```
+    ✅ Analysis complete
+    📊 Found 12 files with outdated patterns
+    ```
+
+    Only files with outdated syntax are added to the job list.
+  </Step>
+</Steps>
+
+### Analysis Time
+
+| Repository Size | Typical Duration |
+|----------------|------------------|
+| < 10 files | 15-30 seconds |
+| 10-50 files | 30-60 seconds |
+| 50-100 files | 1-2 minutes |
+| 100+ files | 2-3 minutes |
+
+<Info>
+  If no outdated files are found, Dependify returns early with a success message. No PR is created.
+</Info>
+
+## Step 3: Refactoring Phase
+
+This is where the magic happens. Dependify uses **AI-powered refactoring** to modernize your code.
+
+### Parallel Processing
+
+```python
+# From server.py:193-247
+with write_app.run():
+    async for output in process_file.map.aio(job_list):
+        # Process each file in parallel
+```
+
+Dependify uses **Modal's parallel processing** to refactor multiple files simultaneously:
+
+- Each file is processed in its own container
+- Files are sent to Groq AI (llama-3.1-8b-instant or llama-3.3-70b-versatile)
+- Refactored code is validated for syntax correctness
+- Confidence scores are calculated (0-100%)
+
+### What You'll See
+
+<Steps>
+  <Step title="Processing Start">
+    ```
+    🤖 Starting AI-powered refactoring...
+    📦 Processing 12 files in parallel
+    ```
+  </Step>
+
+  <Step title="Real-Time Progress">
+    ```
+    ✅ Completed 1/12: src/utils/helper.js 🟢
+    ✅ Completed 2/12: src/components/Button.tsx 🟢
+    ✅ Completed 3/12: src/api/client.js 🟡
+    ⚠️  Completed 4/12: src/legacy/old.js 🔴
+    ```
+
+    **Confidence Indicators:**
+    - 🟢 **Green** (80-100%): High confidence, likely safe to merge
+    - 🟡 **Yellow** (60-79%): Medium confidence, review carefully
+    - 🔴 **Red** (< 60%): Low confidence, manual verification required
+  </Step>
+
+  <Step title="Validation">
+    ```
+    ✅ All files validated for syntax correctness
+    📊 Average confidence score: 87.3%
+    ```
+
+    Each refactored file is validated to ensure it's syntactically correct.
+  </Step>
+</Steps>
+
+### AI Processing Details
+
+For each file, the AI:
+
+1. **Analyzes** the code structure and patterns
+2. **Identifies** specific outdated syntax (e.g., `var` → `const/let`)
+3. **Refactors** using modern best practices
+4. **Explains** the changes in plain English
+5. **Validates** the output for correctness
+6. **Calculates** a confidence score
+
+<Note>
+  Processing time scales with repository size but benefits from parallelization. A 50-file repo takes about as long as a 10-file repo.
+</Note>
+
+## Step 4: Changelog Generation
+
+Dependify generates a comprehensive, AI-explained changelog for your PR:
+
+```python
+# From server.py:342-349
+if file_changes:
+    pr_description = ChangelogFormatter.generate_pr_description(file_changes)
+```
+
+### Changelog Contents
+
+The changelog includes:
+
+- **Summary** of changes (what was modernized and why)
+- **File-by-file breakdown** with before/after comparisons
+- **Key changes** list for each file
+- **Lines added/removed** statistics
+- **Confidence scores** per file
+- **Language detection** and validation status
+
+### Example Changelog
+
+```markdown
+## 🤖 Automated Code Modernization by Dependify
+
+This PR modernizes 12 files in your repository, updating outdated syntax
+and applying modern best practices.
+
+### 📊 Summary
+- **Files Updated**: 12
+- **Lines Added**: 234
+- **Lines Removed**: 189
+- **Average Confidence**: 87.3%
+
+### 📝 Changes by File
+
+#### `src/utils/helper.js` (Confidence: 95%)
+**Language**: JavaScript
+**Lines**: +23 / -19
+
+**Key Changes**:
+- Replaced `var` with `const` and `let` for better scoping
+- Converted callbacks to async/await for improved readability
+- Updated deprecated API calls to modern equivalents
+
+**Before**:
+```javascript
+var data = fetchData(function(err, result) {
+  if (err) throw err;
+  return result;
+});
+```
+
+**After**:
+```javascript
+const data = await fetchData();
+```
+
+...
+```
+
+## Step 5: Branch and PR Creation
+
+With refactoring complete, Dependify creates a branch and submits a PR.
+
+### Branch Creation
+
+```python
+# From git_driver.py:130
+new_branch_name = f"dependify-{uuid.uuid4().hex[:8]}"
+```
+
+Branch naming format: `dependify-a1b2c3d4`
+- Unique identifier prevents conflicts
+- Easy to identify as Dependify-generated
+
+### Fork Handling
+
+<Tabs>
+  <Tab title="Your Repository">
+    ```python
+    # From git_driver.py:264
+    head = new_branch_name
+    ```
+
+    For repositories you own:
+    - Branch is created directly
+    - No fork needed
+    - PR is from `your-branch` to `main`
+  </Tab>
+
+  <Tab title="Others' Repository">
+    ```python
+    # From git_driver.py:11-86
+    fork_result = create_fork(repo_owner, repo_name)
+    ```
+
+    For repositories you don't own:
+    1. Fork is created under your account
+    2. Branch is created in your fork
+    3. PR is from `your-fork:branch` to `original:main`
+
+    <Info>
+      The fork is temporary. You can delete it after the PR is merged or closed.
+    </Info>
+  </Tab>
+</Tabs>
+
+### Commit Message
+
+```python
+# From git_driver.py:141-147
+commit_message = """🤖 Automated code modernization by Dependify
+
+This commit contains automated refactoring to update outdated syntax
+and improve code quality using AI-powered analysis.
+
+Generated with Dependify 2.0
+"""
+```
+
+### PR Submission
+
+```python
+# From git_driver.py:282-299
+response = requests.post(url, json=data, headers=headers, timeout=30)
+
+if response.status_code == 201:
+    pr_url = response.json().get("html_url")
+```
+
+**What you'll see:**
+
+```
+✅ Branch created: dependify-a1b2c3d4
+✅ Changes pushed to GitHub
+✅ Pull request created: https://github.com/owner/repo/pull/123
+```
+
+## Step 6: Reviewing the PR
+
+Your PR is now live on GitHub! Here's how to review it:
+
+### 1. Open the PR
+
+Click the PR link from the Dependify dashboard or find it in your GitHub notifications.
+
+### 2. Read the Changelog
+
+The PR description contains:
+- Summary of changes
+- File-by-file breakdown
+- Confidence scores
+- Before/after code samples
+
+### 3. Review Files Changed
+
+Click the **"Files changed"** tab to see the diff:
+
+<Steps>
+  <Step title="High Confidence Files (🟢 80-100%)">
+    These files have been thoroughly validated and are likely safe to approve:
+    - Modern syntax applied correctly
+    - No breaking changes detected
+    - High AI confidence
+
+    **Quick review** is usually sufficient.
+  </Step>
+
+  <Step title="Medium Confidence Files (🟡 60-79%)">
+    These files should be reviewed more carefully:
+    - Changes are valid but may need adjustment
+    - Check for logic changes
+    - Verify API compatibility
+
+    **Detailed review** recommended.
+  </Step>
+
+  <Step title="Low Confidence Files (🔴 < 60%)">
+    These files require thorough manual verification:
+    - Complex refactoring attempted
+    - Unusual patterns detected
+    - May need manual fixes
+
+    **Manual testing** required before merging.
+  </Step>
+</Steps>
+
+### 4. Run Your Test Suite
+
+<Warning>
+  **Always run your tests before merging!**
+
+  ```bash
+  # Checkout the PR branch
+  git fetch origin
+  git checkout dependify-a1b2c3d4
+
+  # Run your tests
+  npm test  # or pytest, cargo test, etc.
+
+  # Build and verify
+  npm run build
+  ```
+</Warning>
+
+### 5. Check for Breaking Changes
+
+**Common things to verify:**
+
+- **API changes**: Did any function signatures change?
+- **Type changes**: Are TypeScript types still correct?
+- **Dependency updates**: Are all imports still valid?
+- **Runtime behavior**: Does the app still work as expected?
+
+### 6. Request Changes (If Needed)
+
+If you spot issues:
+
+1. **Comment** on specific lines in the "Files changed" tab
+2. **Request changes** using GitHub's review feature
+3. **Fix manually** by pushing to the same branch
+4. **Close the PR** if changes aren't needed
+
+<Note>
+  You can push additional commits to the Dependify branch. They'll appear in the same PR.
+</Note>
+
+## Step 7: Merging
+
+Once you're satisfied with the changes:
+
+1. Click **"Merge pull request"**
+2. Choose your merge strategy:
+   - **Create a merge commit** (preserves full history)
+   - **Squash and merge** (cleaner history, recommended)
+   - **Rebase and merge** (linear history)
+
+3. Confirm the merge
+4. **Delete the branch** (GitHub will offer this option)
+
+### Post-Merge Cleanup
+
+<Tabs>
+  <Tab title="Your Repository">
+    ```bash
+    # Branch is automatically deleted by GitHub
+    # Nothing else to do!
+    ```
+  </Tab>
+
+  <Tab title="Forked Repository">
+    You can safely delete the fork:
+
+    1. Go to your fork: `https://github.com/your-username/repo-name`
+    2. Click **Settings** (gear icon)
+    3. Scroll to **"Danger Zone"**
+    4. Click **"Delete this repository"**
+    5. Confirm deletion
+
+    <Info>
+      The fork was created solely for proposing changes. Once the PR is merged or closed, it serves no purpose.
+    </Info>
+  </Tab>
+</Tabs>
+
+## Understanding the Results
+
+After modernization, Dependify returns quality metrics:
+
+```json
+{
+  "status": "success",
+  "files_analyzed": 23,
+  "files_updated": 12,
+  "quality_metrics": {
+    "average_confidence_score": 87.3,
+    "all_files_validated": true,
+    "high_confidence_files": 10,
+    "validation_results": [
+      {"file": "src/app.js", "is_valid": true, "confidence": 95},
+      {"file": "src/utils.js", "is_valid": true, "confidence": 88}
+    ]
+  }
+}
+```
+
+### Metrics Explained
+
+- **files_analyzed**: Total files scanned for outdated syntax
+- **files_updated**: Files with changes in the PR
+- **average_confidence_score**: Mean confidence across all refactored files
+- **all_files_validated**: Whether all files passed syntax validation
+- **high_confidence_files**: Count of files with 80%+ confidence
+
+<Note>
+  If `average_confidence_score` is below 70%, review the PR extra carefully before merging.
+</Note>
+
+## Troubleshooting
+
+### "No outdated files found"
+
+**Cause:** Your repository is already using modern syntax!
+
+**What to do:** Nothing. Dependify exits early and doesn't create a PR.
+
+### "Failed to create pull request"
+
+**Common causes:**
+1. **No changes to commit** - All files were skipped during refactoring
+2. **Branch already exists** - A previous Dependify branch wasn't deleted
+3. **Permission denied** - GitHub token lacks `repo` scope
+
+**Solution:** Check the error message for details and retry after fixing.
+
+### Low Confidence Scores
+
+**Cause:** Complex or unusual code patterns that the AI finds challenging.
+
+**What to do:**
+- Review these files manually
+- Test thoroughly
+- Consider rejecting changes to low-confidence files
+- Report patterns that consistently get low scores
+
+### PR from Fork Not Showing
+
+**Cause:** Fork creation delay (GitHub can take 5-10 seconds).
+
+**What to do:** Wait a moment and refresh. The PR will appear once the fork is ready.
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Start Small">
+    For your first modernization:
+    - Choose a small, non-critical repository
+    - Review every change carefully
+    - Run tests multiple times
+    - Get familiar with the workflow
+
+    Once comfortable, move to larger projects.
+  </Accordion>
+
+  <Accordion title="Always Test">
+    Never merge without testing:
+    ```bash
+    # Checkout PR branch
+    git fetch && git checkout dependify-abc123
+
+    # Run full test suite
+    npm test
+    npm run build
+    npm run lint
+
+    # Manual testing
+    npm start  # and test functionality
+    ```
+  </Accordion>
+
+  <Accordion title="Review Confidence Scores">
+    Use confidence scores to prioritize review:
+    - 🟢 **80-100%**: Quick scan, approve if tests pass
+    - 🟡 **60-79%**: Detailed review, check logic
+    - 🔴 **< 60%**: Line-by-line review, manual verification
+  </Accordion>
+
+  <Accordion title="Keep Forks Clean">
+    After merging PRs from forks:
+    - Delete the fork immediately
+    - Prevents confusion with multiple forks
+    - Keeps your repository list clean
+  </Accordion>
+
+  <Accordion title="Iterate and Improve">
+    After your first modernization:
+    - Note what worked well
+    - Identify patterns that need manual fixes
+    - Provide feedback on the GitHub repository
+    - Run Dependify regularly to keep code modern
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="API Integration" icon="plug" href="/api/modernization/update-repo">
+    Automate modernization in your CI/CD pipeline
+  </Card>
+  <Card title="Development Setup" icon="code" href="/development">
+    Run Dependify locally or contribute to the project
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/essentials/architecture">
+    Understand how Dependify works under the hood
+  </Card>
+  <Card title="AI Tools" icon="robot" href="/ai-tools/code-analysis">
+    Learn about the AI models powering Dependify
+  </Card>
+</CardGroup>
+
+## Congratulations!
+
+You've completed your first code modernization with Dependify. You now understand:
+
+✅ How to select and submit repositories
+✅ What happens during analysis and refactoring
+✅ How to read confidence scores and validation results
+✅ How to review and merge automated PRs
+✅ Best practices for safe modernization
+
+Keep modernizing and reducing technical debt automatically!

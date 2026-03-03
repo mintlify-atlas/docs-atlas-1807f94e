@@ -1,0 +1,671 @@
+---
+title: 'Backend Architecture'
+description: 'FastAPI server with Modal serverless containers and GitHub API integration'
+icon: 'server'
+---
+
+## Backend Overview
+
+Dependify's backend is a high-performance FastAPI application deployed on Render, leveraging Modal serverless containers for parallel processing at scale.
+
+**Production API**: https://dependify-backend.onrender.com (example)
+
+## Technology Stack
+
+### Core Framework
+
+```python requirements.txt
+fastapi==0.121.2
+uvicorn==0.38.0
+pydantic==2.12.4
+python-dotenv==1.2.1
+```
+
+**Reference**: `backend/requirements.txt:1-5`
+
+### Key Dependencies
+
+<Tabs>
+  <Tab title="API & Server">
+    ```python
+    fastapi==0.121.2          # Modern async API framework
+    uvicorn==0.38.0           # ASGI server
+    slowapi==0.1.9            # Rate limiting
+    pyjwt==2.10.1             # JWT authentication
+    httpx==0.28.1             # Async HTTP client
+    requests==2.32.5          # Sync HTTP client
+    ```
+  </Tab>
+  
+  <Tab title="AI & Processing">
+    ```python
+    modal==1.2.2              # Serverless containers
+    groq==0.34.1              # AI inference
+    instructor==1.13.0        # Structured LLM output
+    pydantic==2.12.4          # Data validation
+    ```
+  </Tab>
+  
+  <Tab title="Database & Real-time">
+    ```python
+    supabase==2.24.0          # Real-time database
+    websockets==15.0.1        # WebSocket support
+    ```
+  </Tab>
+  
+  <Tab title="Git & VCS">
+    ```python
+    gitpython==3.1.45         # Git operations
+    requests==2.32.5          # GitHub API
+    ```
+  </Tab>
+</Tabs>
+
+**Reference**: `backend/requirements.txt:1-17`
+
+## Project Structure
+
+```
+backend/
+├── server.py                   # Main FastAPI application
+├── config.py                   # Configuration management
+├── auth.py                     # GitHub OAuth & JWT
+├── containers.py               # Modal: Analysis container
+├── modal_write.py              # Modal: Refactoring container
+├── checker.py                  # File analysis logic
+├── validators.py               # Multi-language syntax validation
+├── changelog_formatter.py      # AI changelog generation
+├── git_driver.py               # Git operations & GitHub API
+├── socket_manager.py           # WebSocket connection manager
+└── requirements.txt            # Python dependencies
+```
+
+## FastAPI Server Architecture
+
+### Main Application
+
+```python server.py:28-34
+app = FastAPI(
+    title="Dependify API",
+    description="AI-powered code modernization and technical debt reduction",
+    version="2.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
+```
+
+**Reference**: `backend/server.py:28-34`
+
+<Info>
+  FastAPI automatically generates OpenAPI documentation at `/docs` and ReDoc at `/redoc`.
+</Info>
+
+### Middleware Configuration
+
+#### CORS Middleware
+
+```python server.py:44-51
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=Config.get_allowed_origins(),
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
+```
+
+**Reference**: `backend/server.py:44-51`
+
+Allowed origins from config:
+
+```python config.py:42-55
+@staticmethod
+def get_allowed_origins() -> list:
+    frontend_url = Config.FRONTEND_URL
+    origins = [frontend_url]
+    
+    # Add localhost for development
+    if "localhost" not in frontend_url:
+        origins.extend([
+            "http://localhost:3000",
+            "http://127.0.0.1:3000"
+        ])
+    
+    return origins
+```
+
+**Reference**: `backend/config.py:42-55`
+
+#### Rate Limiting
+
+```python server.py:36-39
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+```
+
+**Reference**: `backend/server.py:36-39`
+
+Rate limits per endpoint:
+
+```python
+@app.post("/auth/github")
+@limiter.limit("10/minute")  # Auth endpoint
+
+@app.post('/update')
+@limiter.limit(f"{Config.RATE_LIMIT_PER_HOUR}/hour")  # 100/hour default
+```
+
+**Reference**: `backend/server.py:103`, `server.py:142`
+
+## API Endpoints
+
+### System Endpoints
+
+<Tabs>
+  <Tab title="Root">
+    ```python server.py:78-87
+    @app.get("/", tags=["System"])
+    async def root():
+        return {
+            "name": "Dependify API",
+            "version": "2.0.0",
+            "status": "running",
+            "docs": "/docs",
+            "health": "/health"
+        }
+    ```
+  </Tab>
+  
+  <Tab title="Health Check">
+    ```python server.py:91-98
+    @app.get("/health", tags=["System"])
+    async def health_check():
+        return {
+            "status": "healthy",
+            "version": "2.0.0",
+            "message": "Dependify API is running"
+        }
+    ```
+  </Tab>
+</Tabs>
+
+### Authentication Endpoints
+
+```python server.py:102-138
+@app.post("/auth/github", response_model=AuthResponse)
+@limiter.limit("10/minute")
+async def github_oauth(request: Request, oauth_request: GitHubOAuthRequest):
+    """Exchange GitHub OAuth code for access token."""
+    try:
+        github_data = await AuthService.exchange_github_code(oauth_request.code)
+        
+        # Create JWT token
+        user_data = github_data["user"]
+        access_token = AuthService.create_access_token(
+            data={
+                "user_id": user_data["id"],
+                "username": user_data["login"],
+                "github_token": github_data["github_token"]
+            }
+        )
+        
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user": user_data
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Authentication failed: {str(e)}")
+
+@app.get("/auth/me")
+async def get_current_user_info(current_user: Dict = Depends(get_current_user)):
+    """Get current authenticated user information."""
+    return {"user": current_user}
+```
+
+**Reference**: `backend/server.py:102-138`
+
+### Repository Processing Endpoint
+
+The main `/update` endpoint orchestrates the entire modernization workflow:
+
+```python server.py:141-416
+@app.post('/update', tags=["Repository"])
+@limiter.limit(f"{Config.RATE_LIMIT_PER_HOUR}/hour")
+async def update(
+    request: Request,
+    payload: UpdateRequest,
+    current_user: Optional[Dict] = Depends(get_optional_user)
+):
+    """
+    Process repository to modernize code and create pull request.
+    
+    Steps:
+    1. Analyze repository files for outdated syntax
+    2. Use LLM to refactor code in parallel
+    3. Create new branch with changes
+    4. Submit pull request with AI changelog
+    """
+```
+
+**Reference**: `backend/server.py:141-416`
+
+## Modal Serverless Integration
+
+### Analysis Container (containers.py)
+
+Scans repository for outdated code:
+
+```python containers.py:13-19
+image = modal.Image.debian_slim(python_version="3.10") \
+    .apt_install("git", "python3", "bash") \
+    .pip_install("python-dotenv", "groq", "fastapi", "uvicorn", 
+                 "modal", "instructor", "pydantic", "websockets", "supabase") \
+    .add_local_python_source("checker")
+
+app = modal.App(name="groq-read", image=image)
+```
+
+**Reference**: `backend/containers.py:13-14`
+
+#### Analysis Function
+
+```python containers.py:18-52
+@app.function(
+    secrets=[
+        modal.Secret.from_name("GROQ_API_KEY"),
+        modal.Secret.from_name("SUPABASE_URL"),
+        modal.Secret.from_name("SUPABASE_KEY")
+    ]
+)
+def run_script(repo_url: str) -> list[CodeChange]:
+    """
+    Clones repository and analyzes files for outdated syntax.
+    
+    Returns:
+        List of CodeChange objects (files needing updates)
+    """
+    # Clone pot-tools helper scripts
+    subprocess.run(
+        ["git", "clone", "https://github.com/kshitizz36/pot-tools.git", "scripts"],
+        check=True
+    )
+    
+    os.chdir("scripts")
+    
+    # Clone target repository
+    subprocess.run(
+        ["git", "clone", repo_url, "repository"],
+        check=True
+    )
+    
+    # Analyze all files
+    data = fetch_updates(os.getcwd() + "/repository")
+    
+    return [change.model_dump(mode="json") for change in data]
+```
+
+**Reference**: `backend/containers.py:18-52`
+
+<Info>
+  Uses **llama-3.1-8b-instant** for fast analysis (~5-10 files/second).
+</Info>
+
+### Refactoring Container (modal_write.py)
+
+Refactors individual files with LLM:
+
+```python modal_write.py:8-21
+image = modal.Image.debian_slim(python_version="3.10") \
+    .apt_install("git", "python3", "bash") \
+    .pip_install("python-dotenv", "groq", "fastapi", "uvicorn",
+                 "modal", "instructor", "pydantic", "websockets", "supabase") \
+    .add_local_python_source("checker") \
+    .add_local_python_source("modal_write") \
+    .add_local_python_source("validators") \
+    .add_local_python_source("changelog_formatter") \
+    .add_local_python_source("config") \
+    .add_local_python_source("auth") \
+    .add_local_python_source("containers") \
+    .add_local_python_source("server")
+
+app = modal.App(name="groq-write", image=image)
+```
+
+**Reference**: `backend/modal_write.py:8-21`
+
+#### Refactoring Function
+
+```python modal_write.py:23-187
+@app.function(
+    timeout=300,              # 5 minutes per file
+    max_containers=100,       # Scale to 100 parallel
+    min_containers=3,         # Keep 3 warm
+    secrets=[
+        modal.Secret.from_name("GROQ_API_KEY"),
+        modal.Secret.from_name("SUPABASE_URL"),
+        modal.Secret.from_name("SUPABASE_KEY"),
+    ],
+)
+def process_file(job):
+    """
+    Process a single file: analyze and refactor outdated code.
+    
+    Args:
+        job: Dict with 'path' and 'code_content'
+    
+    Returns:
+        Dict with refactored code, comments, validation, changelog
+    """
+    from groq import Groq
+    from pydantic import BaseModel
+    import instructor
+    
+    # Initialize Groq client
+    client = Groq(api_key=getenv("GROQ_API_KEY"))
+    client = instructor.from_groq(client, mode=instructor.Mode.TOOLS)
+    
+    class JobReport(BaseModel):
+        refactored_code: str
+        refactored_code_comments: str
+    
+    # Generate refactoring
+    job_report = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[...],
+        response_model=JobReport,
+    )
+    
+    # Validate syntax
+    validation_result, confidence_score = validate_and_score(
+        file_path,
+        old_code,
+        job_report.refactored_code
+    )
+    
+    # Generate changelog
+    file_change = ChangelogFormatter.format_file_change(
+        file_path=file_path,
+        old_code=old_code,
+        new_code=job_report.refactored_code,
+        explanation=job_report.refactored_code_comments,
+        confidence_score=confidence_score.score,
+        language=language
+    )
+    
+    # Update Supabase for real-time progress
+    supabase_client.table("repo-updates").insert({
+        "status": "WRITING",
+        "message": f"✍️ Updating {filename}",
+        "code": job_report.refactored_code
+    }).execute()
+    
+    return {
+        "file_path": file_path,
+        "original_code": old_code,
+        "validation": {...},
+        "confidence_score": confidence_score.score,
+        "changelog": {...},
+        **job_report.model_dump()
+    }
+```
+
+**Reference**: `backend/modal_write.py:23-187`
+
+<Info>
+  Uses **llama-3.3-70b-versatile** for high-quality refactoring with validation.
+</Info>
+
+### Parallel Processing
+
+The server uses Modal's `.map.aio()` for async parallel processing:
+
+```python server.py:192-247
+with write_app.run():
+    refactored_jobs = []
+    file_changes = []
+    
+    # Process all files in parallel
+    async for output in process_file.map.aio(job_list):
+        if output and output.get("refactored_code"):
+            refactored_jobs.append({
+                "path": new_path,
+                "new_content": output["refactored_code"],
+                "confidence_score": output.get("confidence_score", 0),
+                "validation": output.get("validation", {}),
+                "changelog": output.get("changelog", {})
+            })
+            
+            file_changes.append(FileChange(...))
+```
+
+**Reference**: `backend/server.py:192-247`
+
+## GitHub API Integration
+
+### Git Driver Module (git_driver.py)
+
+Handles all Git and GitHub operations:
+
+#### Create Fork
+
+```python git_driver.py:11-86
+def create_fork(repo_owner, repo_name):
+    """
+    Create fork or return original repo if user owns it.
+    
+    Returns:
+        Dict with repo info and 'is_own_repo' flag
+    """
+    headers = {
+        "Authorization": f"token {Config.GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    
+    # Get authenticated user
+    user_response = requests.get("https://api.github.com/user", headers=headers)
+    username = user_response.json()["login"]
+    
+    # Check if user owns repo
+    if username.lower() == repo_owner.lower():
+        # Return original repo
+        repo_response = requests.get(
+            f"https://api.github.com/repos/{repo_owner}/{repo_name}",
+            headers=headers
+        )
+        repo_data = repo_response.json()
+        repo_data['is_own_repo'] = True
+        return repo_data
+    
+    # Create fork
+    response = requests.post(
+        f"https://api.github.com/repos/{repo_owner}/{repo_name}/forks",
+        headers=headers
+    )
+    
+    if response.status_code == 202:
+        fork_data = response.json()
+        fork_data['is_own_repo'] = False
+        return fork_data
+```
+
+**Reference**: `backend/git_driver.py:11-86`
+
+#### Create and Push Branch
+
+```python git_driver.py:114-180
+def create_and_push_branch(repo, origin, files_to_stage):
+    """
+    Create branch, commit files, and push to remote.
+    
+    Returns:
+        Tuple of (branch_name, username)
+    """
+    # Create unique branch
+    new_branch_name = f"dependify-{uuid.uuid4().hex[:8]}"
+    new_branch = repo.create_head(new_branch_name)
+    new_branch.checkout()
+    
+    # Stage files
+    repo.index.add(files_to_stage)
+    
+    # Commit
+    commit_message = """🤖 Automated code modernization by Dependify
+
+This commit contains automated refactoring to update outdated syntax
+and improve code quality using AI-powered analysis.
+
+Generated with Dependify 2.0
+"""
+    repo.index.commit(commit_message)
+    
+    # Push to remote
+    origin.push(new_branch)
+    
+    return new_branch_name, username
+```
+
+**Reference**: `backend/git_driver.py:114-180`
+
+#### Create Pull Request
+
+```python git_driver.py:182-303
+def create_pull_request(
+    new_branch_name,
+    repo_owner,
+    repo_name,
+    base_branch,
+    head_owner,
+    is_own_repo=False,
+    changelog_markdown=None
+):
+    """
+    Create PR from fork (or same repo if user owns it).
+    
+    Returns:
+        PR URL or None
+    """
+    pr_title = "🤖 Automated code modernization by Dependify"
+    
+    # Use AI-generated changelog or default
+    pr_body = changelog_markdown or default_pr_template
+    
+    # Set head reference
+    if is_own_repo:
+        head = new_branch_name  # Same repo
+    else:
+        head = f"{head_owner}:{new_branch_name}"  # Fork
+    
+    data = {
+        "title": pr_title,
+        "head": head,
+        "base": base_branch,
+        "body": pr_body
+    }
+    
+    response = requests.post(
+        f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls",
+        json=data,
+        headers=headers
+    )
+    
+    if response.status_code == 201:
+        return response.json().get("html_url")
+```
+
+**Reference**: `backend/git_driver.py:182-303`
+
+## Configuration Management
+
+### Config Class (config.py)
+
+```python config.py:12-73
+class Config:
+    """Configuration class for managing environment variables."""
+    
+    # AI
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+    
+    # Database
+    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
+    SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
+    
+    # GitHub
+    GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "")
+    GITHUB_CLIENT_ID: str = os.getenv("GITHUB_CLIENT_ID", "")
+    GITHUB_CLIENT_SECRET: str = os.getenv("GITHUB_CLIENT_SECRET", "")
+    
+    # Server
+    PORT: int = int(os.getenv("PORT", "5001"))
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
+    API_SECRET_KEY: str = os.getenv("API_SECRET_KEY", "")
+    
+    # Rate Limiting
+    RATE_LIMIT_PER_MINUTE: int = int(os.getenv("RATE_LIMIT_PER_MINUTE", "10"))
+    RATE_LIMIT_PER_HOUR: int = int(os.getenv("RATE_LIMIT_PER_HOUR", "100"))
+    
+    @staticmethod
+    def validate() -> tuple[bool, list[str]]:
+        """Validate required environment variables."""
+        required_vars = {
+            "GROQ_API_KEY": Config.GROQ_API_KEY,
+            "SUPABASE_URL": Config.SUPABASE_URL,
+            "SUPABASE_KEY": Config.SUPABASE_KEY,
+            "GITHUB_TOKEN": Config.GITHUB_TOKEN,
+            "API_SECRET_KEY": Config.API_SECRET_KEY,
+        }
+        
+        missing = [name for name, value in required_vars.items() if not value]
+        return (len(missing) == 0, missing)
+```
+
+**Reference**: `backend/config.py:12-73`
+
+## Validation & Error Handling
+
+See [AI Processing Architecture](/architecture/ai-processing) for details on:
+- Multi-language syntax validation
+- Confidence scoring
+- Changelog generation
+
+## Deployment
+
+### Render Configuration
+
+```yaml render.yaml
+services:
+  - type: web
+    name: dependify-backend
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server.py
+    envVars:
+      - key: PORT
+        value: 5001
+```
+
+### Running Locally
+
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python server.py
+```
+
+Server runs on http://0.0.0.0:5001
+
+**Reference**: `backend/server.py:467-474`
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="AI Processing" icon="brain" href="/architecture/ai-processing">
+    Learn about Groq AI inference and validation
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/auth/oauth">
+    Explore complete API documentation
+  </Card>
+</CardGroup>

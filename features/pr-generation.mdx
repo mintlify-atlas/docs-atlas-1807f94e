@@ -1,0 +1,488 @@
+---
+title: 'PR Generation'
+description: 'Automatic pull request creation with AI-generated changelogs and GitButler-style descriptions'
+icon: 'code-pull-request'
+---
+
+## Overview
+
+Dependify automatically creates professional pull requests with **AI-generated changelogs** that explain what changed, why it changed, and the confidence level of each modification. The PR descriptions follow GitButler's detailed format, providing reviewers with comprehensive context.
+
+## Fork Management
+
+### Intelligent Fork Detection
+
+Dependify automatically determines if a fork is needed:
+
+```python git_driver.py:11-26
+def create_fork(repo_owner, repo_name):
+    """
+    Create a TEMPORARY STAGING fork of the repository for PR creation.
+    
+    If the user already owns the repo, returns the original repo info (no fork needed).
+    If fork already exists, returns the existing fork information.
+    """
+    headers = {
+        "Authorization": f"token {Config.GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    
+    # Get authenticated user's username
+    user_response = requests.get(
+        "https://api.github.com/user", 
+        headers=headers
+    )
+```
+
+<Tabs>
+  <Tab title="Own Repository">
+    **When user owns the repo:**
+    ```python git_driver.py:42-51
+    if username.lower() == repo_owner.lower():
+        print(f"User owns the repository - no fork needed")
+        repo_response = requests.get(
+            f"https://api.github.com/repos/{repo_owner}/{repo_name}",
+            headers=headers
+        )
+        if repo_response.status_code == 200:
+            repo_data = repo_response.json()
+            repo_data['is_own_repo'] = True
+            return repo_data
+    ```
+    
+    **Result:** PR created directly in the repository (no fork)
+  </Tab>
+  
+  <Tab title="External Repository">
+    **When contributing to external repo:**
+    ```python git_driver.py:66-80
+    url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/forks"
+    
+    response = requests.post(url, headers=headers, timeout=30)
+    if response.status_code == 202:  # Fork created
+        print("New fork created successfully")
+        fork_data = response.json()
+        fork_data['is_own_repo'] = False
+        return fork_data
+    elif response.status_code == 200:  # Fork already exists
+        print("Fork already exists")
+        return response.json()
+    ```
+    
+    **Result:** Temporary staging fork created for PR
+  </Tab>
+</Tabs>
+
+<Note>
+**Fork Cleanup:** Temporary forks can be safely deleted after the PR is merged or closed. They serve only as a staging area for proposed changes.
+</Note>
+
+## Branch Creation
+
+### Unique Branch Naming
+
+Each refactoring job gets a unique branch:
+
+```python git_driver.py:129-132
+import uuid
+
+# Create unique branch name
+new_branch_name = f"dependify-{uuid.uuid4().hex[:8]}"
+new_branch = repo.create_head(new_branch_name)
+new_branch.checkout()
+```
+
+**Example branches:**
+- `dependify-a3f9c8e1`
+- `dependify-7b2d4f9a`
+- `dependify-c5e8a1f3`
+
+### Commit Message Template
+
+```python git_driver.py:141-147
+commit_message = """🤖 Automated code modernization by Dependify
+
+This commit contains automated refactoring to update outdated syntax
+and improve code quality using AI-powered analysis.
+
+Generated with Dependify 2.0
+"""
+repo.index.commit(commit_message)
+```
+
+### Push with Authentication
+
+```python git_driver.py:172-178
+try:
+    origin.push(new_branch)
+    print(f"Pushed branch {new_branch_name} to remote")
+except Exception as e:
+    print(f"Error pushing to remote: {e}")
+    raise
+```
+
+## AI-Generated Changelogs
+
+### Changelog Formatter
+
+Dependify includes a sophisticated changelog generation system:
+
+```python changelog_formatter.py:363-430
+def generate_pr_description(file_changes: List[FileChange]) -> str:
+    """
+    Generate a detailed, professional PR description similar to GitButler style.
+    Shows what changed, why it changed, and the impact.
+    """
+    total_files = len(file_changes)
+    
+    # Calculate accurate diff stats
+    total_added = 0
+    total_removed = 0
+    for fc in file_changes:
+        added, removed = ChangelogFormatter.calculate_diff_stats(
+            fc.old_code, fc.new_code
+        )
+        total_added += added
+        total_removed += removed
+    
+    pr_desc = []
+    pr_desc.append("## 🤖 Automated Code Modernization\n")
+    pr_desc.append("This pull request modernizes outdated code patterns and updates deprecated syntax to current best practices.\n")
+```
+
+### GitButler-Style Format
+
+PR descriptions follow GitButler's detailed structure:
+
+```markdown
+## 🤖 Automated Code Modernization
+
+This pull request modernizes outdated code patterns and updates deprecated syntax to current best practices.
+
+### 📝 Summary
+
+Updated **5 files** with modern syntax and improved code quality.
+
+### 📁 Changes by File
+
+#### 1. `src/components/Header.tsx`
+
+**What changed:**
+- Converted to functional component
+- Added TypeScript types
+- Added async/await
+
+**Why:**
+> Functional components are the current React best practice and enable better use of hooks.
+> TypeScript types improve code safety and IDE support.
+
+---
+
+#### 2. `src/utils/api.js`
+
+**What changed:**
+- Added async/await
+- Improved error handling patterns
+
+**Why:**
+> Updated to use modern async/await syntax instead of promise chaining.
+> This improves readability and makes error handling cleaner.
+
+---
+```
+
+### Before/After Code Snippets
+
+The changelog includes key changes for each file:
+
+```python changelog_formatter.py:116-162
+def extract_key_changes(old_code: str, new_code: str, explanation: str) -> List[str]:
+    key_changes = []
+    
+    # Look for specific patterns
+    patterns = {
+        'async/await': ('async', 'await'),
+        'arrow functions': ('=>',),
+        'const/let': ('const ', 'let '),
+        'template literals': ('`',),
+        'destructuring': ('{', '}'),
+        'spread operator': ('...',),
+        'type annotations': (': string', ': number', ': boolean'),
+    }
+    
+    for pattern_name, keywords in patterns.items():
+        if any(keyword in new_code for keyword in keywords) and \
+           not any(keyword in old_code for keyword in keywords):
+            key_changes.append(f"Added {pattern_name}")
+    
+    return key_changes[:5]  # Limit to 5 key changes
+```
+
+## Diff Statistics
+
+### Git-Style Diff Calculation
+
+Accurate line-by-line diff matching GitHub's display:
+
+```python changelog_formatter.py:78-115
+def calculate_diff_stats(old_code: str, new_code: str) -> tuple:
+    """
+    Calculate exact git-style diff statistics matching GitHub's display.
+    """
+    import difflib
+    
+    old_lines = old_code.split('\n') if old_code else []
+    new_lines = new_code.split('\n') if new_code else []
+    
+    # Use difflib for accurate line-by-line comparison (same as git)
+    matcher = difflib.SequenceMatcher(None, old_lines, new_lines)
+    
+    added = 0
+    removed = 0
+    
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == 'replace':
+            removed += (i2 - i1)
+            added += (j2 - j1)
+        elif tag == 'delete':
+            removed += (i2 - i1)
+        elif tag == 'insert':
+            added += (j2 - j1)
+    
+    return added, removed
+```
+
+<Info>
+Diff statistics use Python's `difflib` to match Git/GitHub's exact calculation method.
+</Info>
+
+## PR Creation
+
+### API Integration
+
+```python git_driver.py:182-302
+def create_pull_request(
+    new_branch_name, 
+    repo_owner, 
+    repo_name, 
+    base_branch, 
+    head_owner, 
+    is_own_repo=False, 
+    changelog_markdown=None
+):
+    pr_title = f"🤖 Automated code modernization by Dependify"
+    
+    # Use provided changelog or default PR body
+    if changelog_markdown:
+        pr_body = changelog_markdown
+    
+    headers = {
+        "Authorization": f"token {Config.GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    
+    # If it's user's own repo, head is just the branch name
+    # If it's a fork, head is "username:branch_name"
+    if is_own_repo:
+        head = new_branch_name
+    else:
+        head = f"{head_owner}:{new_branch_name}"
+    
+    data = {
+        "title": pr_title,
+        "head": head,
+        "base": base_branch,
+        "body": pr_body
+    }
+    
+    url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls"
+    response = requests.post(url, json=data, headers=headers)
+```
+
+### PR Body Templates
+
+<Tabs>
+  <Tab title="Own Repository">
+    ```python git_driver.py:206-226
+    pr_body = f"""## Automated Code Modernization
+
+    This pull request was automatically generated by [Dependify](https://github.com/kshitizz36/Dependify2.0) to modernize outdated syntax and improve code quality.
+
+    ### Changes Made
+    - Updated outdated syntax to modern standards
+    - Improved code readability and maintainability
+    - Applied best practices and conventions
+
+    ### Review Guidelines
+    - Please review all changes carefully before merging
+    - Run your test suite to ensure compatibility
+    - Check for any breaking changes in updated APIs
+
+    ### Branch
+    `{new_branch_name}`
+
+    ---
+    Generated with ❤️ by [Dependify 2.0](https://github.com/kshitizz36/Dependify2.0)
+    """
+    ```
+  </Tab>
+  
+  <Tab title="Fork PR">
+    ```python git_driver.py:227-255
+    pr_body = f"""## Automated Code Modernization
+
+    ### About This PR
+    - This PR was created from a **temporary staging fork** (`{head_owner}/{repo_name}`)
+    - The fork was created solely to propose these changes
+    - You can safely delete the fork after reviewing/merging this PR
+    - All changes are transparent and can be reviewed in the "Files changed" tab
+
+    ### Branch
+    `{new_branch_name}` (from fork: `{head_owner}/{repo_name}`)
+
+    ---
+    Generated with ❤️ by [Dependify 2.0](https://github.com/kshitizz36/Dependify2.0)
+
+    *Note: This is an automated tool for code modernization. The temporary fork used to create this PR can be deleted after the PR is merged or closed.*
+    """
+    ```
+  </Tab>
+</Tabs>
+
+## Review Checklist
+
+Every PR includes a review checklist:
+
+```python changelog_formatter.py:419-423
+pr_desc.append("### ✅ Review Checklist\n")
+pr_desc.append("- [ ] Review the changes in each file")
+pr_desc.append("- [ ] Verify the modernized syntax is correct")
+pr_desc.append("- [ ] Run tests to ensure no breaking changes")
+pr_desc.append("- [ ] Check for any deprecated API usage\n")
+```
+
+<Warning>
+**Always review generated PRs** before merging. While Dependify validates syntax, semantic correctness requires human verification.
+</Warning>
+
+## Confidence Indicators
+
+PR descriptions include confidence badges:
+
+```python changelog_formatter.py:276-284
+if fc.confidence_score >= 80:
+    badge = "🟢 HIGH CONFIDENCE"
+elif fc.confidence_score >= 60:
+    badge = "🟡 MEDIUM CONFIDENCE"
+else:
+    badge = "🔴 NEEDS REVIEW"
+
+md.append(f"**{badge}** - Score: {fc.confidence_score}/100\n")
+```
+
+<CardGroup cols={3}>
+  <Card title="High Confidence" icon="circle-check" color="#10b981">
+    🟢 **80-100 points**
+    
+    Safe to merge after quick review
+  </Card>
+  
+  <Card title="Medium Confidence" icon="circle-exclamation" color="#f59e0b">
+    🟡 **60-79 points**
+    
+    Review changes carefully
+  </Card>
+  
+  <Card title="Needs Review" icon="triangle-exclamation" color="#ef4444">
+    🔴 **0-59 points**
+    
+    Requires thorough testing
+  </Card>
+</CardGroup>
+
+## Complete Workflow
+
+```python server.py:269-359
+# 1. Create fork (or use original if user owns it)
+fork_result = create_fork(repo_owner, repo_name)
+is_own_repo = fork_result.get("is_own_repo", False)
+
+# 2. Clone repository
+authenticated_url = repo_url.replace(
+    "https://github.com/", 
+    f"https://{Config.GITHUB_TOKEN}@github.com/"
+)
+subprocess.run(["git", "clone", authenticated_url, staging_dir])
+
+# 3. Load repository
+repo, origin, origin_url = load_repository(staging_dir)
+
+# 4. Apply refactored code to files
+for job in refactored_jobs:
+    with open(job["path"], "w") as f:
+        f.write(job["new_content"])
+    files_changed.append(job["path"])
+
+# 5. Create branch and push
+new_branch_name, username = create_and_push_branch(
+    repo, origin, files_changed
+)
+
+# 6. Generate AI-explained changelog
+if file_changes:
+    pr_description = ChangelogFormatter.generate_pr_description(
+        file_changes
+    )
+
+# 7. Create pull request
+pr_url = create_pull_request(
+    new_branch_name,
+    repo_owner,
+    repo_name,
+    "main",
+    username,
+    is_own_repo,
+    pr_description
+)
+```
+
+## Response Format
+
+```python server.py:367-394
+response_data = {
+    "status": "success",
+    "message": "Repository updated and pull request created successfully",
+    "repository": payload.repository,
+    "files_analyzed": len(job_list),
+    "files_updated": len(files_changed),
+    "branch": new_branch_name,
+    "pull_request_url": pr_url,
+    "is_own_repo": is_own_repo,
+    "quality_metrics": {
+        "average_confidence_score": round(total_confidence, 1),
+        "all_files_validated": all_valid,
+        "high_confidence_files": high_confidence_count
+    }
+}
+
+# Add fork information if it was forked
+if not is_own_repo:
+    response_data["fork_info"] = {
+        "message": "A temporary staging fork was created to propose these changes",
+        "fork_owner": username,
+        "fork_name": repo_name,
+        "can_delete": True,
+        "delete_note": "You can safely delete this fork after the PR is merged or closed"
+    }
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Real-Time Tracking" icon="tower-broadcast" href="/features/real-time-tracking">
+    Monitor PR creation progress live
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/modernization/update-repo">
+    Full API documentation
+  </Card>
+</CardGroup>

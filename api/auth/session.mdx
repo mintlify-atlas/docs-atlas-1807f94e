@@ -1,0 +1,155 @@
+---
+title: 'Verify Session'
+api: 'GET /auth/me'
+description: 'Get current authenticated user information'
+---
+
+## Overview
+
+Retrieve information about the currently authenticated user. This endpoint verifies the JWT token and returns the user data encoded in the token.
+
+## Authentication
+
+<Warning>
+  This endpoint requires authentication. Include a valid JWT token in the Authorization header.
+</Warning>
+
+```
+Authorization: Bearer <access_token>
+```
+
+## Request
+
+No request body or query parameters required. Authentication is provided via the Authorization header.
+
+## Response
+
+<ResponseField name="user" type="object">
+  Current user information from JWT token
+  
+  <Expandable title="user properties">
+    <ResponseField name="user_id" type="integer">
+      GitHub user ID
+    </ResponseField>
+    
+    <ResponseField name="username" type="string">
+      GitHub username
+    </ResponseField>
+    
+    <ResponseField name="github_token" type="string">
+      GitHub access token for API operations
+    </ResponseField>
+    
+    <ResponseField name="exp" type="integer">
+      Token expiration timestamp (Unix timestamp)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -X GET https://api.dependify.dev/auth/me \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+## Example Response
+
+```json
+{
+  "user": {
+    "user_id": 12345678,
+    "username": "octocat",
+    "github_token": "gho_abc123xyz789",
+    "exp": 1735689600
+  }
+}
+```
+
+## Error Responses
+
+### Common Errors
+
+<Expandable title="401 Unauthorized - Missing Token">
+  ```json
+  {
+    "detail": "Not authenticated"
+  }
+  ```
+  
+  No Authorization header was provided.
+</Expandable>
+
+<Expandable title="401 Unauthorized - Invalid Token">
+  ```json
+  {
+    "detail": "Invalid token"
+  }
+  ```
+  
+  The provided token is malformed or invalid.
+</Expandable>
+
+<Expandable title="401 Unauthorized - Expired Token">
+  ```json
+  {
+    "detail": "Token has expired"
+  }
+  ```
+  
+  The token has expired (tokens are valid for 24 hours). Request a new token using the OAuth endpoint.
+</Expandable>
+
+<Expandable title="401 Unauthorized - Invalid Credentials">
+  ```json
+  {
+    "detail": "Invalid authentication credentials"
+  }
+  ```
+  
+  The token is valid but missing required fields.
+</Expandable>
+
+## Use Cases
+
+### Verify Token on App Load
+
+Use this endpoint when your application starts to verify the stored token is still valid:
+
+```javascript
+const verifyToken = async (token) => {
+  try {
+    const response = await fetch('https://api.dependify.dev/auth/me', {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      return data.user;
+    }
+    
+    // Token is invalid, redirect to login
+    return null;
+  } catch (error) {
+    console.error('Token verification failed:', error);
+    return null;
+  }
+};
+```
+
+### Check Token Expiration
+
+The `exp` field contains the Unix timestamp when the token expires. Check if renewal is needed:
+
+```javascript
+const isTokenExpiringSoon = (exp) => {
+  const expirationDate = new Date(exp * 1000);
+  const now = new Date();
+  const hoursDiff = (expirationDate - now) / (1000 * 60 * 60);
+  
+  // Return true if token expires in less than 1 hour
+  return hoursDiff < 1;
+};
+```

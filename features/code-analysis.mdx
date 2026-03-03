@@ -1,0 +1,254 @@
+---
+title: 'Code Analysis'
+description: 'Parallel file analysis with Modal containers for detecting outdated code patterns'
+icon: 'magnifying-glass-chart'
+---
+
+## Overview
+
+Dependify uses **Modal's serverless container infrastructure** to analyze codebases in parallel, detecting outdated syntax patterns across multiple programming languages. The analysis pipeline leverages Groq's LLM models to intelligently identify code that needs modernization.
+
+## Architecture
+
+### Modal Container Setup
+
+The analysis system runs on Modal with optimized container configuration:
+
+```python containers.py
+image = modal.Image.debian_slim(python_version="3.10")
+    .apt_install("git", "python3", "bash")
+    .pip_install(
+        "python-dotenv", "groq", "fastapi", 
+        "uvicorn", "modal", "instructor", 
+        "pydantic", "websockets", "supabase"
+    )
+    .add_local_python_source("checker")
+
+app = modal.App(name="groq-read", image=image)
+```
+
+<Info>
+Modal containers are ephemeral and spin up on-demand, providing cost-effective parallel processing without managing infrastructure.
+</Info>
+
+### Analysis Function
+
+The core analysis function clones the repository and scans all files:
+
+```python containers.py:19-51
+@app.function(
+    secrets=[
+        modal.Secret.from_name("GROQ_API_KEY"),
+        modal.Secret.from_name("SUPABASE_URL"),
+        modal.Secret.from_name("SUPABASE_KEY")
+    ]
+)
+def run_script(repo_url: str) -> list[CodeChange]:
+    # Clone helper scripts
+    subprocess.run(
+        ["git", "clone", 
+         "https://github.com/kshitizz36/pot-tools.git", 
+         "scripts"],
+        check=True
+    )
+    
+    os.chdir("scripts")
+    
+    # Clone target repository
+    subprocess.run(
+        ["git", "clone", repo_url, "repository"],
+        check=True
+    )
+    
+    # Analyze all files
+    data = fetch_updates(os.getcwd() + "/repository")
+    
+    return [change.model_dump(mode="json") for change in data]
+```
+
+## File Scanning Process
+
+### Recursive File Discovery
+
+The analyzer walks the entire repository tree:
+
+```python checker.py:59-69
+def get_all_files_recursively(root_directory):
+    all_files = []
+    for root, dirs, files in os.walk(root_directory):
+        for filename in files:
+            file_path = os.path.join(root, filename)
+            all_files.append(file_path)
+    return all_files
+```
+
+### File Filtering
+
+Certain files are automatically excluded from analysis:
+
+```python checker.py:144-149
+if (
+    os.path.basename(filepath).startswith(".") or
+    filepath.endswith((".css", ".json", ".md", ".svg", 
+                      ".ico", ".mjs", ".gitignore", ".env"))
+    or ".git/" in filepath
+):
+    continue  # Skip non-code files
+```
+
+<Note>
+**Filtered file types:**
+- Configuration files (`.json`, `.env`, `.gitignore`)
+- Styles (`.css`)
+- Documentation (`.md`)
+- Assets (`.svg`, `.ico`)
+- Git internals (`.git/`)
+- Hidden files (starting with `.`)
+</Note>
+
+## AI-Powered Detection
+
+### LLM Analysis
+
+Each file is analyzed by Groq's **llama-3.1-8b-instant** model for fast pattern detection:
+
+```python checker.py:94-103
+client = get_client()
+chat_completion = client.chat.completions.create(
+    model="llama-3.1-8b-instant",
+    messages=[
+        {
+            "role": "system", 
+            "content": "You are a helpful assistant that analyzes code and returns a JSON object with the path, and raw code content. Your goal is to identify outdated syntax in code and keep track of it."
+        },
+        {"role": "user", "content": user_prompt}
+    ],
+    response_model=CodeChange,
+)
+```
+
+### Structured Output
+
+The LLM returns structured data using Pydantic models:
+
+```python checker.py:53-57
+class CodeChange(BaseModel):
+    path: str                # File path
+    code_content: str        # Full file content
+    reason: str              # Why it's outdated
+    add: bool                # Should be updated
+```
+
+## Detected Patterns
+
+The analysis identifies various outdated code patterns:
+
+<Tabs>
+  <Tab title="JavaScript/TypeScript">
+    **Common Patterns:**
+    - `var` → `const`/`let`
+    - Promise chains → `async`/`await`
+    - Class components → Function components (React)
+    - `require()` → ES6 `import`
+    - Callback functions → Promises
+    - Template strings over concatenation
+  </Tab>
+  
+  <Tab title="Python">
+    **Common Patterns:**
+    - Python 2 print statements → `print()`
+    - Old-style string formatting → f-strings
+    - `%` formatting → `.format()` or f-strings
+    - Dictionary `.has_key()` → `in` operator
+    - `file()` → `open()`
+  </Tab>
+  
+  <Tab title="React">
+    **Common Patterns:**
+    - Class components → Functional components
+    - `componentDidMount` → `useEffect` hook
+    - `this.state` → `useState` hook
+    - `this.props` → destructured props
+    - HOCs → hooks
+  </Tab>
+</Tabs>
+
+## Real-Time Status Updates
+
+Analysis progress is broadcast via Supabase real-time updates:
+
+```python checker.py:107-125
+filename = file_path.split("/")[-1]
+data = {
+    "status": "READING",
+    "message": f"📖 Reading {filename}",
+    "code": chat_completion.code_content
+}
+
+supabase_client = get_supabase_client()
+supabase_client.table("repo-updates").insert(data).execute()
+```
+
+<Info>
+Status updates appear in real-time on the dashboard, showing which file is currently being analyzed.
+</Info>
+
+## Performance Characteristics
+
+### Speed
+
+- **Small repos (< 50 files)**: 30-60 seconds
+- **Medium repos (50-200 files)**: 1-3 minutes
+- **Large repos (200+ files)**: 3-8 minutes
+
+### Scalability
+
+Modal's serverless architecture enables:
+
+- **Automatic scaling**: Containers spin up based on demand
+- **No cold starts**: Warm containers remain active during analysis
+- **Cost efficiency**: Pay only for compute time used
+
+<Warning>
+Very large repositories (1000+ files) may hit API rate limits. Consider analyzing specific directories for huge codebases.
+</Warning>
+
+## Error Handling
+
+```python checker.py:127-134
+try:
+    response = analyze_file_with_llm(filepath)
+    if response is None or response.add == False:
+        continue  # Skip files with no updates needed
+except Exception as e:
+    print(f"Error analyzing {file_path}: {e}")
+    return None
+```
+
+Failed file analysis doesn't stop the entire process—the system continues with remaining files.
+
+## API Integration
+
+The analysis is triggered from the main FastAPI server:
+
+```python server.py:171-178
+with container_app.run():
+    job_list = run_script.remote(payload.repository)
+
+if not job_list or not isinstance(job_list, list):
+    return {
+        "message": "No outdated files found in repository",
+        "files_analyzed": 0
+    }
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="AI Refactoring" icon="wand-magic-sparkles" href="/features/ai-refactoring">
+    Learn how detected files are refactored using AI
+  </Card>
+  <Card title="Real-Time Tracking" icon="tower-broadcast" href="/features/real-time-tracking">
+    See how progress is tracked live
+  </Card>
+</CardGroup>

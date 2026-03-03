@@ -1,0 +1,515 @@
+---
+title: 'Production Deployment'
+description: 'Deploy Dependify to production with Vercel, Render, and Modal'
+icon: 'rocket'
+---
+
+This guide covers deploying Dependify to production. The system uses three separate platforms:
+
+- **Vercel** - Frontend hosting with edge optimization
+- **Render** - Backend API hosting with auto-scaling
+- **Modal** - Serverless containers for parallel processing
+
+## Architecture Overview
+
+```
+User → Vercel (Frontend) → Render (Backend API) → Modal Containers → Groq AI
+                              ↓                      ↓
+                         Supabase (Real-time)   GitHub API
+```
+
+## Prerequisites
+
+<Steps>
+  <Step title="Create accounts">
+    Sign up for the following services:
+    - [Vercel](https://vercel.com/) - Frontend hosting
+    - [Render](https://render.com/) - Backend hosting
+    - [Modal](https://modal.com/) - Serverless containers
+  </Step>
+
+  <Step title="Prepare environment variables">
+    Have all your API keys and secrets ready. See the [Environment Variables](/development/environment-variables) page for the complete list.
+  </Step>
+
+  <Step title="GitHub repository">
+    Ensure your code is pushed to a GitHub repository that Vercel and Render can access.
+  </Step>
+</Steps>
+
+## Deploy Modal Containers
+
+Deploy the serverless containers first, as the backend depends on them.
+
+<Steps>
+  <Step title="Install Modal CLI">
+    ```bash
+    pip install modal
+    modal setup
+    ```
+    
+    Follow the prompts to authenticate with your Modal account.
+  </Step>
+
+  <Step title="Create Modal secrets">
+    ```bash
+    modal secret create GROQ_API_KEY
+    modal secret create SUPABASE_URL
+    modal secret create SUPABASE_KEY
+    ```
+    
+    Enter the values when prompted.
+  </Step>
+
+  <Step title="Deploy analysis container">
+    From the `backend/` directory:
+    
+    ```bash
+    modal deploy containers.py
+    ```
+    
+    This deploys the `groq-read` app for analyzing repository files.
+  </Step>
+
+  <Step title="Deploy refactoring container">
+    ```bash
+    modal deploy modal_write.py
+    ```
+    
+    This deploys the `groq-write` app for refactoring code with AI.
+  </Step>
+
+  <Step title="Verify deployment">
+    Check your [Modal dashboard](https://modal.com/apps) to confirm both apps are deployed:
+    - `groq-read` with `run_script` function
+    - `groq-write` with `process_file` function
+    
+    <Note>
+      Modal apps are serverless and will auto-scale from 0 to 100+ containers based on load.
+    </Note>
+  </Step>
+</Steps>
+
+## Deploy Backend to Render
+
+The backend API runs on Render's Python environment.
+
+<Steps>
+  <Step title="Create new Web Service">
+    1. Go to [Render Dashboard](https://dashboard.render.com/)
+    2. Click "New +" → "Web Service"
+    3. Connect your GitHub repository
+    4. Select the repository containing Dependify
+  </Step>
+
+  <Step title="Configure build settings">
+    Use the following settings:
+    
+    <ParamField path="Name" type="string">
+      `dependify-api` (or your preferred name)
+    </ParamField>
+    
+    <ParamField path="Region" type="string">
+      Choose closest to your users (e.g., Oregon, Frankfurt)
+    </ParamField>
+    
+    <ParamField path="Branch" type="string">
+      `master` or `main`
+    </ParamField>
+    
+    <ParamField path="Root Directory" type="string">
+      Leave empty (repo root)
+    </ParamField>
+    
+    <ParamField path="Environment" type="string">
+      `Python 3`
+    </ParamField>
+    
+    <ParamField path="Build Command" type="string">
+      ```bash
+      cd backend && pip install -r requirements.txt
+      ```
+    </ParamField>
+    
+    <ParamField path="Start Command" type="string">
+      ```bash
+      cd backend && python3 server.py
+      ```
+    </ParamField>
+    
+    <Note>
+      These values match the configuration in `render.yaml`.
+    </Note>
+  </Step>
+
+  <Step title="Set environment variables">
+    In the Render dashboard, add all backend environment variables:
+    
+    ```bash
+    # AI & Processing
+    GROQ_API_KEY=gsk_...
+    
+    # Database
+    SUPABASE_URL=https://your-project.supabase.co
+    SUPABASE_KEY=eyJ... # Service role key
+    
+    # GitHub
+    GITHUB_CLIENT_ID=Iv1...
+    GITHUB_CLIENT_SECRET=abc...
+    GITHUB_TOKEN=ghp_... # Personal access token with 'repo' scope
+    
+    # Security
+    API_SECRET_KEY=your-random-secret
+    
+    # Frontend CORS
+    FRONTEND_URL=https://your-app.vercel.app
+    
+    # Python version
+    PYTHON_VERSION=3.11.0
+    ```
+    
+    <Warning>
+      Update `FRONTEND_URL` with your actual Vercel domain after deploying the frontend.
+    </Warning>
+  </Step>
+
+  <Step title="Deploy">
+    Click "Create Web Service". Render will:
+    1. Clone your repository
+    2. Install dependencies
+    3. Start the FastAPI server
+    4. Provide you with a URL like `https://dependify-api.onrender.com`
+    
+    Monitor the deployment logs for any errors.
+  </Step>
+
+  <Step title="Verify deployment">
+    Once deployed, test the API:
+    
+    ```bash
+    curl https://your-render-url.onrender.com/health
+    ```
+    
+    Expected response:
+    ```json
+    {
+      "status": "healthy",
+      "version": "2.0.0",
+      "message": "Dependify API is running"
+    }
+    ```
+  </Step>
+</Steps>
+
+## Deploy Frontend to Vercel
+
+The frontend is deployed to Vercel for optimal Next.js performance.
+
+<Steps>
+  <Step title="Import project">
+    1. Go to [Vercel Dashboard](https://vercel.com/dashboard)
+    2. Click "Add New..." → "Project"
+    3. Import your GitHub repository
+    4. Select the repository containing Dependify
+  </Step>
+
+  <Step title="Configure project">
+    <ParamField path="Framework Preset" type="string">
+      Next.js (auto-detected)
+    </ParamField>
+    
+    <ParamField path="Root Directory" type="string">
+      `frontend`
+    </ParamField>
+    
+    <ParamField path="Build Command" type="string">
+      ```bash
+      pnpm build
+      ```
+    </ParamField>
+    
+    <ParamField path="Output Directory" type="string">
+      `.next` (default)
+    </ParamField>
+    
+    <ParamField path="Install Command" type="string">
+      ```bash
+      pnpm install
+      ```
+    </ParamField>
+  </Step>
+
+  <Step title="Set environment variables">
+    Add the following environment variables in Vercel:
+    
+    ```bash
+    NEXT_PUBLIC_GITHUB_CLIENT_ID=Iv1...
+    NEXT_PUBLIC_API_URL=https://your-render-url.onrender.com
+    NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+    NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ... # Anon key, not service role
+    ```
+    
+    <Note>
+      Make sure `NEXT_PUBLIC_API_URL` points to your Render backend URL.
+    </Note>
+  </Step>
+
+  <Step title="Deploy">
+    Click "Deploy". Vercel will:
+    1. Build your Next.js app with Turbopack
+    2. Deploy to their edge network
+    3. Provide you with URLs like:
+       - Production: `https://dependify.vercel.app`
+       - Preview: `https://dependify-git-branch.vercel.app`
+  </Step>
+
+  <Step title="Update CORS configuration">
+    After deployment, update your backend's `FRONTEND_URL` on Render:
+    
+    1. Go to Render dashboard → Your service → Environment
+    2. Update `FRONTEND_URL` to your Vercel production URL
+    3. Save changes and wait for redeployment
+  </Step>
+</Steps>
+
+## Configure GitHub OAuth
+
+Update your GitHub OAuth app with production URLs.
+
+<Steps>
+  <Step title="Update OAuth app settings">
+    Go to [GitHub Settings → Developer settings → OAuth Apps](https://github.com/settings/developers)
+  </Step>
+
+  <Step title="Edit your OAuth app">
+    Update:
+    - **Homepage URL**: `https://your-app.vercel.app`
+    - **Authorization callback URL**: `https://your-app.vercel.app/auth/callback`
+    
+    <Warning>
+      The callback URL must match exactly. No trailing slashes.
+    </Warning>
+  </Step>
+
+  <Step title="Test authentication flow">
+    Visit your production site and test GitHub login to ensure OAuth is working.
+  </Step>
+</Steps>
+
+## Domain Configuration (Optional)
+
+Set up custom domains for professional URLs.
+
+### Frontend Domain (Vercel)
+
+<Steps>
+  <Step title="Add custom domain">
+    In Vercel project settings:
+    1. Go to "Settings" → "Domains"
+    2. Add your domain (e.g., `dependify.yourdomain.com`)
+    3. Follow DNS configuration instructions
+  </Step>
+
+  <Step title="Update DNS records">
+    Add the following records to your DNS provider:
+    
+    ```
+    Type: CNAME
+    Name: dependify
+    Value: cname.vercel-dns.com
+    ```
+  </Step>
+
+  <Step title="Update environment variables">
+    Update `FRONTEND_URL` on Render to use your custom domain.
+  </Step>
+</Steps>
+
+### Backend Domain (Render)
+
+<Steps>
+  <Step title="Add custom domain">
+    In Render service settings:
+    1. Go to "Settings" → "Custom Domains"
+    2. Add your domain (e.g., `api.yourdomain.com`)
+  </Step>
+
+  <Step title="Update DNS records">
+    Add the provided CNAME record to your DNS:
+    
+    ```
+    Type: CNAME
+    Name: api
+    Value: your-service.onrender.com
+    ```
+  </Step>
+
+  <Step title="Update frontend configuration">
+    Update `NEXT_PUBLIC_API_URL` on Vercel to use your custom domain.
+  </Step>
+</Steps>
+
+## Monitoring and Logs
+
+### Render Logs
+
+View backend logs in real-time:
+1. Go to Render dashboard → Your service → "Logs"
+2. Monitor for errors or performance issues
+3. Set up log alerts for critical errors
+
+### Vercel Logs
+
+View frontend logs:
+1. Go to Vercel project → "Deployments" → Select deployment
+2. Click "Functions" tab for serverless function logs
+3. Use Vercel Analytics for performance monitoring
+
+### Modal Logs
+
+View container execution logs:
+1. Go to Modal dashboard → Your app
+2. Click on function name (`run_script` or `process_file`)
+3. View recent executions and error traces
+
+## Continuous Deployment
+
+Both Vercel and Render support automatic deployments.
+
+<Steps>
+  <Step title="Enable auto-deploy on Vercel">
+    Automatic by default. Every push to your main branch triggers a deployment.
+  </Step>
+
+  <Step title="Enable auto-deploy on Render">
+    In Render service settings:
+    1. Go to "Settings" → "Build & Deploy"
+    2. Enable "Auto-Deploy"
+    3. Select branch (e.g., `master` or `main`)
+  </Step>
+
+  <Step title="Preview deployments">
+    - Vercel creates preview deployments for all branches and PRs
+    - Render can be configured for preview environments with separate services
+  </Step>
+</Steps>
+
+## Scaling Configuration
+
+### Render Scaling
+
+<ParamField path="Instance Type" type="string">
+  - **Free**: Limited hours, cold starts
+  - **Starter**: Always-on, 0.5 GB RAM
+  - **Standard**: Auto-scaling, 2+ GB RAM (recommended for production)
+</ParamField>
+
+### Modal Scaling
+
+Modal auto-scales by default:
+- **Min containers**: 3 (configured in `modal_write.py`)
+- **Max containers**: 100 (configurable)
+- **Timeout**: 300 seconds per file (5 minutes)
+
+To adjust scaling:
+
+```python
+# backend/modal_write.py
+@app.function(
+    timeout=300,
+    max_containers=100,  # Increase for larger scale
+    min_containers=3,    # Keep warm for faster response
+    secrets=[...]
+)
+```
+
+## Environment-Specific Secrets
+
+<CardGroup cols={2}>
+  <Card title="Development" icon="laptop-code">
+    Use `.env` files locally. Never commit to git.
+  </Card>
+  
+  <Card title="Production" icon="cloud">
+    Use platform-native secret management:
+    - Render: Environment Variables
+    - Vercel: Environment Variables
+    - Modal: `modal secret` CLI
+  </Card>
+</CardGroup>
+
+## Security Checklist
+
+<Steps>
+  <Step title="API keys are secret">
+    - ✅ All secrets stored in platform environment variables
+    - ✅ No secrets in git repository
+    - ✅ Different keys for dev and production
+  </Step>
+
+  <Step title="CORS is configured">
+    - ✅ `FRONTEND_URL` points to production domain
+    - ✅ No wildcard CORS origins in production
+  </Step>
+
+  <Step title="Rate limiting is enabled">
+    - ✅ `RATE_LIMIT_PER_HOUR` set appropriately
+    - ✅ Monitor rate limit violations in logs
+  </Step>
+
+  <Step title="HTTPS is enforced">
+    - ✅ Vercel provides automatic HTTPS
+    - ✅ Render provides automatic HTTPS
+    - ✅ GitHub OAuth callback uses HTTPS
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Backend returns 503 or times out">
+    Render free tier has cold starts. Solutions:
+    
+    1. Upgrade to Starter plan for always-on service
+    2. Add health check pings to keep service warm
+    3. Check Render logs for startup errors
+  </Accordion>
+
+  <Accordion title="CORS errors in production">
+    1. Verify `FRONTEND_URL` on Render matches Vercel URL exactly
+    2. No trailing slashes in URLs
+    3. Restart Render service after changing environment variables
+    4. Check browser console for specific CORS error
+  </Accordion>
+
+  <Accordion title="Modal containers fail">
+    1. Check Modal dashboard for error logs
+    2. Verify secrets are configured: `modal secret list`
+    3. Ensure Groq API key has sufficient quota
+    4. Check Modal billing for quota limits
+  </Accordion>
+
+  <Accordion title="GitHub OAuth fails">
+    1. Verify OAuth app callback URL matches Vercel URL
+    2. Ensure `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` are correct
+    3. Test OAuth flow in incognito mode
+    4. Check Render logs for authentication errors
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Monitor Performance" icon="chart-line">
+    Set up monitoring with Vercel Analytics and Render metrics
+  </Card>
+  <Card title="Set Up Alerts" icon="bell">
+    Configure email alerts for deployment failures and errors
+  </Card>
+  <Card title="Review Logs" icon="file-lines">
+    Regularly check logs for errors and optimization opportunities
+  </Card>
+  <Card title="Scale Resources" icon="arrow-up-right-dots">
+    Monitor usage and upgrade plans as traffic grows
+  </Card>
+</CardGroup>
