@@ -1,0 +1,122 @@
+{
+  "projectType": "saas",
+  "projectName": "Dependify",
+  "projectDescription": "AI-powered code modernization platform that automates technical debt reduction and creates detailed pull requests with AI-explained changelogs",
+  "theme": "aspen",
+  "primaryColor": "#6366F1",
+  "lightColor": "#818CF8",
+  "darkColor": "#4F46E5",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "introduction",
+              "how-it-works"
+            ]
+          },
+          {
+            "group": "Getting Started",
+            "pages": [
+              "getting-started/quickstart",
+              "getting-started/authentication",
+              "getting-started/first-modernization"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/code-analysis",
+              "features/ai-refactoring",
+              "features/pr-generation",
+              "features/real-time-tracking"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/repository-workflows",
+              "guides/fork-handling",
+              "guides/understanding-changelogs",
+              "guides/best-practices"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/frontend",
+              "architecture/backend",
+              "architecture/ai-processing"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Authentication",
+            "pages": [
+              "api/auth/oauth",
+              "api/auth/session"
+            ]
+          },
+          {
+            "group": "Modernization",
+            "pages": [
+              "api/modernization/update-repo",
+              "api/modernization/status"
+            ]
+          },
+          {
+            "group": "Webhooks",
+            "pages": [
+              "api/webhooks/events"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Development",
+        "groups": [
+          {
+            "group": "Self-Hosting",
+            "pages": [
+              "development/setup",
+              "development/environment-variables",
+              "development/deployment"
+            ]
+          },
+          {
+            "group": "Contributing",
+            "pages": [
+              "development/contributing",
+              "development/code-structure"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "AI-powered code modernization using Groq inference",
+    "Automatic PR creation with detailed AI-generated changelogs",
+    "Smart fork detection and repository handling",
+    "Real-time progress tracking via Supabase",
+    "Parallel file processing with Modal containers",
+    "GitHub OAuth authentication",
+    "Support for JavaScript/TypeScript and Python",
+    "GitButler-style PR descriptions with before/after comparisons"
+  ],
+  "publicApiSurface": [
+    "POST /auth/github - GitHub OAuth authentication",
+    "GET /auth/verify - Verify session token",
+    "POST /update - Trigger repository modernization",
+    "GET /health - API health check",
+    "WebSocket /ws - Real-time progress updates"
+  ]
+}
